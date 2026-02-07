@@ -227,6 +227,62 @@
     .stat-row .label { color: #888; }
     .stat-row .value { color: #e0e0e0; font-weight: 500; }
 
+    .file-upload {
+      margin-bottom: 16px;
+    }
+
+    .file-upload-btn {
+      display: inline-block;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #e0e0e0;
+      background: #1a1a22;
+      border: 1px solid #333;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .file-upload-btn:hover {
+      border-color: #4488cc;
+      background: #22222e;
+    }
+
+    .file-info {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #888;
+    }
+
+    .file-info .book-title {
+      color: #ccc;
+      font-weight: 500;
+    }
+
+    .chapter-nav {
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .chapter-nav label {
+      font-size: 13px;
+      color: #999;
+      white-space: nowrap;
+    }
+
+    .chapter-nav select {
+      flex: 1;
+      background: #1a1a22;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+
     .hidden { display: none !important; }
   </style>
 </head>
@@ -287,8 +343,18 @@
           </select>
         </div>
       </div>
-      <h2>Reading Text</h2>
-      <textarea id="reading-text" placeholder="Paste your reading text here...">The quick brown fox jumps over the lazy dog. This is a sample text for monocular reading practice. Replace this with your own reading material — books, articles, or any text you want to practice with.
+      <h2>Reading Source</h2>
+      <div class="file-upload" id="file-upload-area">
+        <input type="file" id="file-input" accept=".epub,.txt,.text" style="display:none" />
+        <button type="button" id="file-upload-btn" class="file-upload-btn">Load EPUB or Text File</button>
+        <div id="file-info" class="file-info"></div>
+      </div>
+      <div id="chapter-nav" class="chapter-nav hidden">
+        <label for="chapter-select">Chapter</label>
+        <select id="chapter-select"></select>
+      </div>
+      <h2>Or Paste Text</h2>
+      <textarea id="reading-text" placeholder="Paste your reading text here, or load an EPUB above...">The quick brown fox jumps over the lazy dog. This is a sample text for monocular reading practice. Replace this with your own reading material — books, articles, or any text you want to practice with.
 
 Vision therapy exercises like monocular reading help strengthen the neural pathways from the amblyopic eye to the visual cortex. By forcing the brain to process text through the weaker eye, you encourage neuroplastic adaptation and improved visual acuity.
 

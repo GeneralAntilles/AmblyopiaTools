@@ -178,6 +178,12 @@ async function startExercise(exerciseId: string): Promise<void> {
     case 'monocular-reading': {
       const readingText = launcher.getReadingText();
       const currentSettings = launcher.getCurrentSettings();
+      const loadedBook = launcher.getLoadedBook();
+
+      // Build chapter data from loaded book if available
+      const chapters = loadedBook && loadedBook.chapters.length > 1
+        ? loadedBook.chapters.map((ch) => ({ title: ch.title, text: ch.text }))
+        : undefined;
 
       const exercise = new MonocularReadingExercise({
         text: readingText || undefined,
@@ -186,6 +192,8 @@ async function startExercise(exerciseId: string): Promise<void> {
         wordsPerPage: currentSettings.wordsPerPage as number,
         fontFamily: currentSettings.fontFamily as string,
         nonTrainingDisplay: currentSettings.nonTrainingDisplay as 'blank' | 'fixation' | 'pattern',
+        chapters,
+        startChapter: chapters ? launcher.getSelectedChapterIndex() : undefined,
       });
 
       exercise.setExitCallback(() => {
@@ -200,7 +208,10 @@ async function startExercise(exerciseId: string): Promise<void> {
 
       activeExercise = exercise;
 
-      vrHud?.updateStatus('Monocular Reading — Grip to exit');
+      const statusText = chapters
+        ? 'Monocular Reading — ↔ page, ↕ chapter, grip exit'
+        : 'Monocular Reading — Grip to exit';
+      vrHud?.updateStatus(statusText);
       break;
     }
 

@@ -1,11 +1,12 @@
 /**
  * 2D launcher page logic.
  *
- * Handles exercise selection, settings binding, and the "Enter VR" button.
- * This runs in the normal browser context before WebXR is initiated.
+ * Handles exercise selection, settings binding, file loading (EPUB/text),
+ * and the "Enter VR" button.
  */
 
 import type { SettingsStore, UserSettings } from '../core/settings-store';
+import { loadEpub, type LoadedBook, type BookChapter } from '../utils/epub-loader';
 
 export interface ExerciseDefinition {
   id: string;
@@ -78,6 +79,10 @@ export class Launcher {
   private selectedExercise: string = 'monocular-reading';
   private onEnterVR: ((exerciseId: string) => void) | null = null;
 
+  /** Loaded book data (EPUB or plain text file) */
+  private loadedBook: LoadedBook | null = null;
+  private selectedChapterIndex: number = 0;
+
   constructor(store: SettingsStore) {
     this.store = store;
   }
@@ -93,6 +98,7 @@ export class Launcher {
     this.renderExerciseCards();
     this.bindSettings(settings);
     this.bindEnterVR();
+    this.bindFileUpload();
 
     // Load saved reading text
     const savedText = await this.store.getReadingText();
@@ -118,7 +124,6 @@ export class Launcher {
     `
     ).join('');
 
-    // Click handlers
     container.querySelectorAll('.exercise-card').forEach((card) => {
       card.addEventListener('click', () => {
         const id = (card as HTMLElement).dataset.exercise;
@@ -128,11 +133,9 @@ export class Launcher {
         this.selectedExercise = id!;
         this.store.saveSetting('lastExercise', id!);
 
-        // Update selection UI
         container.querySelectorAll('.exercise-card').forEach((c) => c.classList.remove('selected'));
         card.classList.add('selected');
 
-        // Show/hide reading settings
         this.updateSettingsVisibility();
       });
     });
@@ -147,38 +150,137 @@ export class Launcher {
     }
   }
 
+  private bindFileUpload(): void {
+    const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
+    const uploadBtn = document.getElementById('file-upload-btn') as HTMLButtonElement | null;
+
+    if (!fileInput || !uploadBtn) return;
+
+    uploadBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+
+      const fileInfo = document.getElementById('file-info')!;
+      fileInfo.textContent = 'Loading...';
+
+      try {
+        if (file.name.endsWith('.epub')) {
+          await this.loadEpubFile(file);
+        } else {
+          await this.loadTextFile(file);
+        }
+      } catch (err) {
+        fileInfo.textContent = `Error: ${err instanceof Error ? err.message : 'Failed to load file'}`;
+        console.error('File load error:', err);
+      }
+
+      // Reset input so the same file can be re-selected
+      fileInput.value = '';
+    });
+  }
+
+  private async loadEpubFile(file: File): Promise<void> {
+    const arrayBuffer = await file.arrayBuffer();
+    const book = await loadEpub(arrayBuffer);
+
+    this.loadedBook = book;
+    this.selectedChapterIndex = 0;
+
+    // Update UI
+    const fileInfo = document.getElementById('file-info')!;
+    fileInfo.innerHTML = `<span class="book-title">${escapeHtml(book.title)}</span> by ${escapeHtml(book.author)} &mdash; ${book.chapters.length} chapters`;
+
+    // Populate chapter selector
+    this.populateChapterSelect(book.chapters);
+
+    // Load first chapter into textarea
+    this.selectChapter(0);
+  }
+
+  private async loadTextFile(file: File): Promise<void> {
+    const text = await file.text();
+
+    this.loadedBook = {
+      title: file.name.replace(/\.[^.]+$/, ''),
+      author: '',
+      chapters: [{ index: 0, title: file.name, href: '', text }],
+    };
+    this.selectedChapterIndex = 0;
+
+    const fileInfo = document.getElementById('file-info')!;
+    fileInfo.innerHTML = `<span class="book-title">${escapeHtml(file.name)}</span> &mdash; ${text.length.toLocaleString()} characters`;
+
+    // Hide chapter nav for single-chapter text files
+    const chapterNav = document.getElementById('chapter-nav');
+    if (chapterNav) chapterNav.classList.add('hidden');
+
+    const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
+    if (textarea) {
+      textarea.value = text;
+      this.store.saveReadingText(text);
+    }
+  }
+
+  private populateChapterSelect(chapters: BookChapter[]): void {
+    const select = document.getElementById('chapter-select') as HTMLSelectElement | null;
+    const chapterNav = document.getElementById('chapter-nav');
+    if (!select || !chapterNav) return;
+
+    if (chapters.length <= 1) {
+      chapterNav.classList.add('hidden');
+      return;
+    }
+
+    chapterNav.classList.remove('hidden');
+    select.innerHTML = chapters
+      .map((ch, i) => `<option value="${i}">${escapeHtml(ch.title)}</option>`)
+      .join('');
+
+    select.value = '0';
+    select.addEventListener('change', () => {
+      this.selectChapter(parseInt(select.value, 10));
+    });
+  }
+
+  private selectChapter(index: number): void {
+    if (!this.loadedBook) return;
+    const chapter = this.loadedBook.chapters[index];
+    if (!chapter) return;
+
+    this.selectedChapterIndex = index;
+
+    const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
+    if (textarea) {
+      textarea.value = chapter.text;
+      this.store.saveReadingText(chapter.text);
+    }
+
+    const select = document.getElementById('chapter-select') as HTMLSelectElement | null;
+    if (select) select.value = String(index);
+  }
+
   private bindSettings(settings: UserSettings): void {
-    // Training eye
     this.bindSelect('training-eye', settings.trainingEye, (val) =>
       this.store.saveSetting('trainingEye', val as 'left' | 'right')
     );
-
-    // Font size
     this.bindNumber('font-size', settings.fontSize, (val) =>
       this.store.saveSetting('fontSize', val)
     );
-
-    // Line height
     this.bindNumber('line-height', settings.lineHeight, (val) =>
       this.store.saveSetting('lineHeight', val)
     );
-
-    // Words per page
     this.bindNumber('words-per-page', settings.wordsPerPage, (val) =>
       this.store.saveSetting('wordsPerPage', val)
     );
-
-    // Font family
     this.bindSelect('font-family', settings.fontFamily, (val) =>
       this.store.saveSetting('fontFamily', val)
     );
-
-    // Non-training display
     this.bindSelect('non-training-display', settings.nonTrainingDisplay, (val) =>
       this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern')
     );
 
-    // Reading text auto-save
     const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
     if (textarea) {
       let saveTimeout: number | undefined;
@@ -227,6 +329,15 @@ export class Launcher {
     return textarea?.value ?? '';
   }
 
+  /** Get the full loaded book (for chapter navigation in VR) */
+  getLoadedBook(): LoadedBook | null {
+    return this.loadedBook;
+  }
+
+  getSelectedChapterIndex(): number {
+    return this.selectedChapterIndex;
+  }
+
   getCurrentSettings(): Record<string, unknown> {
     return {
       fontSize: parseFloat((document.getElementById('font-size') as HTMLInputElement)?.value ?? '48'),
@@ -237,4 +348,10 @@ export class Launcher {
       trainingEye: (document.getElementById('training-eye') as HTMLSelectElement)?.value ?? 'right',
     };
   }
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

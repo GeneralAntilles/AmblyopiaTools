@@ -6,11 +6,13 @@
  */
 
 export type InputAction =
-  | 'page-forward'   // Right thumbstick right, or trigger
-  | 'page-back'      // Left thumbstick left, or secondary
-  | 'select'         // Primary trigger press
-  | 'exit'           // Grip press (either hand)
-  | 'menu';          // Menu button
+  | 'page-forward'    // Thumbstick right, or trigger
+  | 'page-back'       // Thumbstick left
+  | 'chapter-next'    // Thumbstick down
+  | 'chapter-prev'    // Thumbstick up
+  | 'select'          // Primary trigger press
+  | 'exit'            // Grip press (either hand)
+  | 'menu';           // Menu button
 
 export type InputActionCallback = (action: InputAction) => void;
 
@@ -95,6 +97,21 @@ export class InputManager {
         this.emit('page-back');
       }
       state.thumbstickWasLeft = isLeft;
+
+      // Detect thumbstick flick down (next chapter)
+      // WebXR Y axis: negative = pushed forward/up, positive = pulled back/down
+      const isDown = state.thumbstickY > THUMBSTICK_THRESHOLD;
+      if (isDown && !state.thumbstickWasDown) {
+        this.emit('chapter-next');
+      }
+      state.thumbstickWasDown = isDown;
+
+      // Detect thumbstick flick up (prev chapter)
+      const isUp = state.thumbstickY < -THUMBSTICK_THRESHOLD;
+      if (isUp && !state.thumbstickWasUp) {
+        this.emit('chapter-prev');
+      }
+      state.thumbstickWasUp = isUp;
     }
   }
 
