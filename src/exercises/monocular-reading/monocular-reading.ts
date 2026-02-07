@@ -103,7 +103,7 @@ export class MonocularReadingExercise extends BaseExercise {
     const indicatorGeo = new THREE.PlaneGeometry(0.6, 0.08);
     this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.pageIndicatorMesh = new THREE.Mesh(indicatorGeo, this.pageIndicatorMaterial);
-    this.pageIndicatorMesh.position.set(0, 0.5, -2.0);
+    this.pageIndicatorMesh.position.set(0, 0.52, -2.0);
     this.renderer.addToTrainingEye(this.pageIndicatorMesh);
 
     // --- Non-training eye content ---
@@ -235,16 +235,19 @@ export class MonocularReadingExercise extends BaseExercise {
 
     switch (this.settings.nonTrainingDisplay) {
       case 'fixation':
-        texture = this.textRenderer.renderFixationCross();
+        // Same panel background with a fixation cross centered
+        texture = this.textRenderer.renderFixationCross(2048, '#444444', '#0a0a0f');
         break;
       case 'pattern':
         texture = this.textRenderer.renderNoisePattern();
         break;
       case 'blank':
       default:
+        // Empty panel — same background as text panel so the viewport shape
+        // is visible to the non-training eye against the black scene
         texture = this.textRenderer.renderToTexture({
           text: '',
-          background: '#000000',
+          background: '#0a0a0f',
         });
         break;
     }

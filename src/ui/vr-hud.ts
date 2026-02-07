@@ -28,10 +28,10 @@ export class VRHud {
     });
     const statusGeo = new THREE.PlaneGeometry(0.5, 0.08);
     this.statusMesh = new THREE.Mesh(statusGeo, this.statusMaterial);
-    this.statusMesh.position.set(-0.5, 1.9, -2.0);
+    this.statusMesh.position.set(-0.5, 2.3, -2.0);
     this.hudGroup.add(this.statusMesh);
 
-    // Timer (top-right)
+    // Timer (top-right, above text area)
     this.timerMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -39,7 +39,7 @@ export class VRHud {
     });
     const timerGeo = new THREE.PlaneGeometry(0.35, 0.08);
     this.timerMesh = new THREE.Mesh(timerGeo, this.timerMaterial);
-    this.timerMesh.position.set(0.5, 1.9, -2.0);
+    this.timerMesh.position.set(0.5, 2.3, -2.0);
     this.hudGroup.add(this.timerMesh);
   }
 

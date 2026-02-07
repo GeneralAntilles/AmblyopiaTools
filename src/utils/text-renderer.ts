@@ -114,10 +114,10 @@ export class TextRenderer {
   /**
    * Render a fixation cross texture.
    */
-  renderFixationCross(size = 2048, crossColor = '#444444'): THREE.CanvasTexture {
+  renderFixationCross(size = 2048, crossColor = '#444444', bgColor = '#000000'): THREE.CanvasTexture {
     const { canvas, ctx } = createCanvas(size, size);
 
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, size, size);
 
     const cx = size / 2;
