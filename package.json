@@ -14,6 +14,7 @@
   "devDependencies": {
     "@types/three": "^0.160.0",
     "@types/webxr": "^0.5.24",
+    "@vitejs/plugin-basic-ssl": "^1.2.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.12",
     "vitest": "^1.2.2"
