@@ -1,8 +1,8 @@
 /**
  * Canvas-based text-to-texture pipeline.
  *
- * Renders text onto an offscreen canvas, then uploads it as a Three.js texture.
- * This is the standard approach for text in WebGL — avoids SDF/glyph complexity.
+ * Renders text onto a canvas, then uploads it as a Three.js texture.
+ * Each call creates its own canvas so textures don't share image data.
  */
 
 import * as THREE from 'three';
@@ -46,33 +46,28 @@ const DEFAULT_OPTIONS: Required<TextRenderOptions> = {
   align: 'left',
 };
 
+/**
+ * Create a fresh canvas + context pair at the given dimensions.
+ */
+function createCanvas(width: number, height: number): {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  return { canvas, ctx };
+}
+
 export class TextRenderer {
-  private canvas: OffscreenCanvas | HTMLCanvasElement;
-  private ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-
-  constructor() {
-    // Use OffscreenCanvas if available (Quest Browser supports it)
-    if (typeof OffscreenCanvas !== 'undefined') {
-      this.canvas = new OffscreenCanvas(DEFAULT_OPTIONS.width, DEFAULT_OPTIONS.height);
-      this.ctx = this.canvas.getContext('2d')!;
-    } else {
-      this.canvas = document.createElement('canvas');
-      this.canvas.width = DEFAULT_OPTIONS.width;
-      this.canvas.height = DEFAULT_OPTIONS.height;
-      this.ctx = this.canvas.getContext('2d')!;
-    }
-  }
-
   /**
    * Render text to a Three.js CanvasTexture.
+   * Each call creates its own canvas so the texture owns its pixel data.
    */
   renderToTexture(opts: TextRenderOptions): THREE.CanvasTexture {
     const o = { ...DEFAULT_OPTIONS, ...opts };
-
-    this.canvas.width = o.width;
-    this.canvas.height = o.height;
-
-    const ctx = this.ctx;
+    const { canvas, ctx } = createCanvas(o.width, o.height);
 
     // Background
     ctx.fillStyle = o.background;
@@ -86,7 +81,7 @@ export class TextRenderer {
 
     // Word-wrap and render
     const maxWidth = o.width - o.paddingX * 2;
-    const lines = this.wordWrap(ctx, o.text, maxWidth);
+    const lines = wordWrap(ctx, o.text, maxWidth);
     const lineHeightPx = o.fontSize * o.lineHeight;
 
     let x: number;
@@ -103,13 +98,12 @@ export class TextRenderer {
 
     let y = o.paddingY;
     for (const line of lines) {
-      if (y + lineHeightPx > o.height - o.paddingY) break; // Don't overflow
+      if (y + lineHeightPx > o.height - o.paddingY) break;
       ctx.fillText(line, x, y);
       y += lineHeightPx;
     }
 
-    // Create Three.js texture
-    const texture = new THREE.CanvasTexture(this.canvas as HTMLCanvasElement);
+    const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
@@ -121,9 +115,7 @@ export class TextRenderer {
    * Render a fixation cross texture.
    */
   renderFixationCross(size = 2048, crossColor = '#444444'): THREE.CanvasTexture {
-    this.canvas.width = size;
-    this.canvas.height = size;
-    const ctx = this.ctx;
+    const { canvas, ctx } = createCanvas(size, size);
 
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
@@ -134,12 +126,10 @@ export class TextRenderer {
     const thickness = size * 0.008;
 
     ctx.fillStyle = crossColor;
-    // Horizontal
     ctx.fillRect(cx - armLength, cy - thickness, armLength * 2, thickness * 2);
-    // Vertical
     ctx.fillRect(cx - thickness, cy - armLength, thickness * 2, armLength * 2);
 
-    const texture = new THREE.CanvasTexture(this.canvas as HTMLCanvasElement);
+    const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
@@ -150,14 +140,11 @@ export class TextRenderer {
    * Render a low-contrast noise/pattern texture.
    */
   renderNoisePattern(size = 2048, contrast = 0.05): THREE.CanvasTexture {
-    this.canvas.width = size;
-    this.canvas.height = size;
-    const ctx = this.ctx;
+    const { canvas, ctx } = createCanvas(size, size);
 
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, size, size);
 
-    // Draw random noise dots at low contrast
     const maxBrightness = Math.floor(255 * contrast);
     const dotSize = 4;
 
@@ -169,7 +156,7 @@ export class TextRenderer {
       }
     }
 
-    const texture = new THREE.CanvasTexture(this.canvas as HTMLCanvasElement);
+    const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
@@ -185,48 +172,47 @@ export class TextRenderer {
     const availableHeight = o.height - o.paddingY * 2;
     return Math.floor(availableHeight / lineHeightPx);
   }
+}
 
-  private wordWrap(
-    ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
-    text: string,
-    maxWidth: number
-  ): string[] {
-    const paragraphs = text.split('\n');
-    const lines: string[] = [];
+function wordWrap(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const paragraphs = text.split('\n');
+  const lines: string[] = [];
 
-    for (const paragraph of paragraphs) {
-      if (paragraph.trim() === '') {
-        lines.push('');
-        continue;
-      }
+  for (const paragraph of paragraphs) {
+    if (paragraph.trim() === '') {
+      lines.push('');
+      continue;
+    }
 
-      const words = paragraph.split(/\s+/);
-      let currentLine = '';
+    const words = paragraph.split(/\s+/);
+    let currentLine = '';
 
-      for (const word of words) {
-        const testLine = currentLine ? `${currentLine} ${word}` : word;
-        const metrics = ctx.measureText(testLine);
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = ctx.measureText(testLine);
 
-        if (metrics.width > maxWidth && currentLine) {
-          lines.push(currentLine);
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
-      }
-
-      if (currentLine) {
+      if (metrics.width > maxWidth && currentLine) {
         lines.push(currentLine);
+        currentLine = word;
+      } else {
+        currentLine = testLine;
       }
     }
 
-    return lines;
+    if (currentLine) {
+      lines.push(currentLine);
+    }
   }
+
+  return lines;
 }
 
 /**
  * Paginate text into pages of approximately `wordsPerPage` words.
- * Tries to break at paragraph boundaries when possible.
  */
 export function paginateText(text: string, wordsPerPage: number): string[] {
   const words = text.split(/\s+/).filter(w => w.length > 0);
