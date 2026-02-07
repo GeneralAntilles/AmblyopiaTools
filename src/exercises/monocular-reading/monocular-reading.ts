@@ -55,17 +55,15 @@ export class MonocularReadingExercise extends BaseExercise {
   private textRenderer: TextRenderer;
   private textureCache: TextureCache;
 
-  // Three.js objects for the training eye scene
+  // Three.js objects for the training eye
   private textMesh: THREE.Mesh | null = null;
   private textMaterial: THREE.MeshBasicMaterial | null = null;
-
-  // Three.js objects for the non-training eye scene
-  private nonTrainingMesh: THREE.Mesh | null = null;
-  private nonTrainingMaterial: THREE.MeshBasicMaterial | null = null;
-
-  // Page indicator mesh
   private pageIndicatorMesh: THREE.Mesh | null = null;
   private pageIndicatorMaterial: THREE.MeshBasicMaterial | null = null;
+
+  // Three.js objects for the non-training eye
+  private nonTrainingMesh: THREE.Mesh | null = null;
+  private nonTrainingMaterial: THREE.MeshBasicMaterial | null = null;
 
   private exitCallback: (() => void) | null = null;
 
@@ -89,37 +87,32 @@ export class MonocularReadingExercise extends BaseExercise {
     this.currentPage = 0;
     this.pagesRead = 0;
 
-    // Create text display quad in training eye scene
-    const planeGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    // --- Training eye content ---
 
+    // Text display quad
+    const planeGeo = new THREE.PlaneGeometry(1.6, 1.6);
     this.textMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
-      transparent: false,
       side: THREE.FrontSide,
     });
     this.textMesh = new THREE.Mesh(planeGeo, this.textMaterial);
     this.textMesh.position.set(0, 1.4, -2.0);
-    this.renderer.getTrainingScene().add(this.textMesh);
+    this.renderer.addToTrainingEye(this.textMesh);
 
     // Page indicator below text
     const indicatorGeo = new THREE.PlaneGeometry(0.6, 0.08);
-    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: false,
-    });
+    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.pageIndicatorMesh = new THREE.Mesh(indicatorGeo, this.pageIndicatorMaterial);
     this.pageIndicatorMesh.position.set(0, 0.5, -2.0);
-    this.renderer.getTrainingScene().add(this.pageIndicatorMesh);
+    this.renderer.addToTrainingEye(this.pageIndicatorMesh);
 
-    // Non-training eye display
-    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: false,
-    });
+    // --- Non-training eye content ---
+
+    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const nonTrainingGeo = new THREE.PlaneGeometry(1.6, 1.6);
     this.nonTrainingMesh = new THREE.Mesh(nonTrainingGeo, this.nonTrainingMaterial);
     this.nonTrainingMesh.position.set(0, 1.4, -2.0);
-    this.renderer.getNonTrainingScene().add(this.nonTrainingMesh);
+    this.renderer.addToNonTrainingEye(this.nonTrainingMesh);
 
     // Render initial content
     this.renderCurrentPage();
@@ -145,8 +138,7 @@ export class MonocularReadingExercise extends BaseExercise {
   }
 
   update(_dt: number): void {
-    // Monocular reading is mostly static per page.
-    // Input is event-driven. Nothing to update per-frame.
+    // Monocular reading is static per page; input is event-driven.
   }
 
   teardown(): void {
@@ -154,12 +146,9 @@ export class MonocularReadingExercise extends BaseExercise {
     this.unsubInput?.();
 
     if (this.renderer) {
-      const trainingScene = this.renderer.getTrainingScene();
-      const nonTrainingScene = this.renderer.getNonTrainingScene();
-
-      if (this.textMesh) trainingScene.remove(this.textMesh);
-      if (this.pageIndicatorMesh) trainingScene.remove(this.pageIndicatorMesh);
-      if (this.nonTrainingMesh) nonTrainingScene.remove(this.nonTrainingMesh);
+      if (this.textMesh) this.renderer.removeFromScene(this.textMesh);
+      if (this.pageIndicatorMesh) this.renderer.removeFromScene(this.pageIndicatorMesh);
+      if (this.nonTrainingMesh) this.renderer.removeFromScene(this.nonTrainingMesh);
     }
 
     this.textMesh?.geometry.dispose();
@@ -253,7 +242,6 @@ export class MonocularReadingExercise extends BaseExercise {
         break;
       case 'blank':
       default:
-        // Just a black texture
         texture = this.textRenderer.renderToTexture({
           text: '',
           background: '#000000',

@@ -68,109 +68,56 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
   vrBtn.textContent = 'Starting VR...';
 
   try {
-    // Load settings
     const settings = await settingsStore.getSettings();
 
-    // Create XR session manager
-    xrManager = new XRSessionManager(canvas);
+    // 1. Request the XR session
+    xrManager = new XRSessionManager();
+    xrManager.setOnSessionEnded(handleSessionEnded);
+    const session = await xrManager.requestSession();
 
-    xrManager.setCallbacks({
-      onSessionStarted: async (session) => {
-        canvas.style.display = 'block';
+    canvas.style.display = 'block';
 
-        // Initialize per-eye renderer
-        const gl = xrManager!.getGL()!;
-        perEyeRenderer = new PerEyeRenderer(canvas, gl);
-        perEyeRenderer.setTrainingEye(settings.trainingEye as EyeSide);
-        await perEyeRenderer.setSession(session);
+    // 2. Create renderer (Three.js owns the XR render loop)
+    perEyeRenderer = new PerEyeRenderer(canvas);
+    perEyeRenderer.setTrainingEye(settings.trainingEye as EyeSide);
 
-        // Initialize input
-        inputManager = new InputManager();
-        inputManager.setSession(session);
+    // 3. Input
+    inputManager = new InputManager();
+    inputManager.setSession(session);
 
-        // Initialize contrast engine
-        contrastEngine = new ContrastEngine({
-          dominantEyeContrast: settings.contrastDominant,
-          amblyopicEyeContrast: settings.contrastAmblyopic,
-        });
-
-        // Initialize VR HUD
-        vrHud = new VRHud();
-        perEyeRenderer.getTrainingScene().add(vrHud.getGroup());
-
-        // Start the exercise
-        await startExercise(exerciseId, settings);
-
-        // Start analytics session
-        analytics.startSession(exerciseId);
-      },
-
-      onSessionEnded: async () => {
-        canvas.style.display = 'none';
-
-        // Get stats before teardown
-        const stats = activeExercise?.getSessionStats();
-
-        // Teardown exercise
-        activeExercise?.teardown();
-        activeExercise = null;
-
-        // End analytics session
-        const record = await analytics.endSession(stats);
-
-        // Dispose resources
-        vrHud?.dispose();
-        vrHud = null;
-        inputManager?.dispose();
-        inputManager = null;
-        perEyeRenderer?.dispose();
-        perEyeRenderer = null;
-        contrastEngine = null;
-        xrManager = null;
-
-        // Show session summary
-        if (stats) {
-          const summaryEl = document.getElementById('session-summary')!;
-          showSessionSummary(summaryEl, stats);
-        }
-
-        // Re-enable button
-        vrBtn.disabled = false;
-        vrBtn.textContent = 'Enter VR';
-
-        console.log('Session ended:', record);
-      },
-
-      onFrame: (time, frame, refSpace) => {
-        // Calculate delta time
-        const dt = lastFrameTime ? (time - lastFrameTime) / 1000 : 0;
-        lastFrameTime = time;
-
-        // Poll input
-        inputManager?.update();
-
-        // Update exercise
-        activeExercise?.update(dt);
-
-        // Update HUD timer
-        if (vrHud && analytics.getActiveSession()) {
-          const elapsed = Date.now() - analytics.getActiveSession()!.startTime;
-          vrHud.updateTimer(elapsed);
-        }
-
-        // Render per-eye
-        perEyeRenderer?.renderFrame(frame, refSpace);
-      },
-
-      onError: (error) => {
-        console.error('XR Error:', error);
-        vrBtn.disabled = false;
-        vrBtn.textContent = 'Enter VR';
-        canvas.style.display = 'none';
-      },
+    // 4. Contrast engine
+    contrastEngine = new ContrastEngine({
+      dominantEyeContrast: settings.contrastDominant,
+      amblyopicEyeContrast: settings.contrastAmblyopic,
     });
 
-    await xrManager.start();
+    // 5. VR HUD (visible to both eyes)
+    vrHud = new VRHud();
+    perEyeRenderer.addToBothEyes(vrHud.getGroup());
+
+    // 6. Start the exercise
+    await startExercise(exerciseId);
+
+    // 7. Analytics
+    analytics.startSession(exerciseId);
+
+    // 8. Per-frame callback
+    perEyeRenderer.onFrame((time, _frame) => {
+      const dt = lastFrameTime ? (time - lastFrameTime) / 1000 : 0;
+      lastFrameTime = time;
+
+      inputManager?.update();
+      activeExercise?.update(dt);
+
+      if (vrHud && analytics.getActiveSession()) {
+        const elapsed = Date.now() - analytics.getActiveSession()!.startTime;
+        vrHud.updateTimer(elapsed);
+      }
+    });
+
+    // 9. Hand session to Three.js — starts the render loop
+    await perEyeRenderer.startSession(session);
+
   } catch (error) {
     console.error('Failed to start VR:', error);
     vrBtn.disabled = false;
@@ -182,12 +129,49 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
 }
 
 /**
+ * Called when the XR session ends (user exits VR or grip exit).
+ */
+async function handleSessionEnded(): Promise<void> {
+  const vrBtn = document.getElementById('enter-vr-btn') as HTMLButtonElement;
+  const canvas = document.getElementById('xr-canvas') as HTMLCanvasElement;
+
+  canvas.style.display = 'none';
+
+  // Get stats before teardown
+  const stats = activeExercise?.getSessionStats();
+
+  // Teardown
+  activeExercise?.teardown();
+  activeExercise = null;
+
+  const record = await analytics.endSession(stats);
+
+  vrHud?.dispose();
+  vrHud = null;
+  inputManager?.dispose();
+  inputManager = null;
+  perEyeRenderer?.dispose();
+  perEyeRenderer = null;
+  contrastEngine = null;
+  xrManager = null;
+  lastFrameTime = 0;
+
+  // Show session summary
+  if (stats) {
+    const summaryEl = document.getElementById('session-summary')!;
+    showSessionSummary(summaryEl, stats);
+  }
+
+  vrBtn.disabled = false;
+  vrBtn.textContent = 'Enter VR';
+
+  console.log('Session ended:', record);
+}
+
+/**
  * Instantiate and set up the requested exercise.
  */
-async function startExercise(
-  exerciseId: string,
-  settings: Awaited<ReturnType<typeof settingsStore.getSettings>>
-): Promise<void> {
+async function startExercise(exerciseId: string): Promise<void> {
   if (!perEyeRenderer || !inputManager || !contrastEngine) return;
 
   switch (exerciseId) {
@@ -216,7 +200,6 @@ async function startExercise(
 
       activeExercise = exercise;
 
-      // Update HUD
       vrHud?.updateStatus('Monocular Reading — Grip to exit');
       break;
     }
