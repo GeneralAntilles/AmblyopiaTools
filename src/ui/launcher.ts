@@ -61,9 +61,25 @@ const EXERCISES: ExerciseDefinition[] = [
     id: 'suppression-check',
     name: 'Suppression Check',
     description:
-      'Worth 4-dot style diagnostic. Detect binocular suppression before and after training.',
+      'Worth 4-dot style diagnostic. Detect binocular suppression before and after training. Quick (~2 min).',
     type: 'diagnostic',
-    available: false,
+    available: true,
+  },
+  {
+    id: 'brock-string',
+    name: 'Brock String',
+    description:
+      'Virtual Brock string for convergence training. Focus on beads at different depths to see the X pattern. Trains eye teaming.',
+    type: 'binocular',
+    available: true,
+  },
+  {
+    id: 'vergence-training',
+    name: 'Vergence Training',
+    description:
+      'Train convergence and divergence with binocular disparity rings. VR equivalent of eccentric circles and vectographs.',
+    type: 'binocular',
+    available: true,
   },
 ];
 
@@ -106,6 +122,78 @@ export class Launcher {
       const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
       if (textarea) textarea.value = savedText;
     }
+
+    // Render session history
+    await this.renderSessionHistory();
+  }
+
+  /** Refresh session history display (call after session ends too) */
+  async renderSessionHistory(): Promise<void> {
+    const container = document.getElementById('session-history');
+    if (!container) return;
+
+    const records = await this.store.getSessionHistory(undefined, 20);
+
+    if (records.length === 0) {
+      container.innerHTML = '<p class="history-empty">No sessions recorded yet. Complete a VR exercise to see your history.</p>';
+      return;
+    }
+
+    // Summary stats
+    const totalSessions = records.length;
+    const totalTimeMs = records.reduce((s, r) => s + r.durationMs, 0);
+    const totalMinutes = Math.round(totalTimeMs / 60000);
+
+    // Streak: count consecutive days with sessions (working backward from today)
+    const sessionDays = new Set(records.map((r) => new Date(r.startTime).toDateString()));
+    let streak = 0;
+    const day = new Date();
+    while (sessionDays.has(day.toDateString())) {
+      streak++;
+      day.setDate(day.getDate() - 1);
+    }
+
+    const exerciseNames: Record<string, string> = {
+      'monocular-reading': 'Monocular Reading',
+      'dichoptic-reading': 'Dichoptic Reading',
+      'suppression-check': 'Suppression Check',
+      'brock-string': 'Brock String',
+      'vergence-training': 'Vergence Training',
+    };
+
+    const statsHtml = `
+      <div class="history-stats">
+        <div class="history-stat">
+          <div class="stat-value">${totalSessions}</div>
+          <div class="stat-label">Sessions</div>
+        </div>
+        <div class="history-stat">
+          <div class="stat-value">${totalMinutes}m</div>
+          <div class="stat-label">Total Time</div>
+        </div>
+        <div class="history-stat">
+          <div class="stat-value">${streak}</div>
+          <div class="stat-label">Day Streak</div>
+        </div>
+      </div>
+    `;
+
+    const rowsHtml = records.map((r) => {
+      const name = exerciseNames[r.exercise] ?? r.exercise;
+      const dur = formatDuration(r.durationMs);
+      const date = formatDate(r.startTime);
+      const details = formatDetails(r);
+
+      return `
+        <div class="history-row">
+          <div class="exercise-name">${escapeHtml(name)}${details ? `<span class="exercise-type">${escapeHtml(details)}</span>` : ''}</div>
+          <div class="duration">${dur}</div>
+          <div class="date">${date}</div>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = statsHtml + rowsHtml;
   }
 
   private renderExerciseCards(): void {
@@ -379,4 +467,47 @@ function escapeHtml(text: string): string {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+}
+
+function formatDate(timestamp: number): string {
+  const d = new Date(timestamp);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return `Today ${time}`;
+  if (isYesterday) return `Yesterday ${time}`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` ${time}`;
+}
+
+function formatDetails(record: import('../core/settings-store').SessionRecord): string {
+  const stats = record.stats;
+  if (!stats) return '';
+
+  const parts: string[] = [];
+
+  if (typeof stats.pagesRead === 'number' && stats.pagesRead > 0) {
+    parts.push(`${stats.pagesRead} pages`);
+  }
+  if (typeof stats.fusionRate === 'number') {
+    parts.push(`${stats.fusionRate}% fusion`);
+  }
+  if (typeof stats.fellowEyeContrast === 'number' && stats.fellowEyeContrast > 0) {
+    parts.push(`${stats.fellowEyeContrast}% contrast`);
+  }
+  if (typeof stats.convergenceFusionRate === 'number') {
+    parts.push(`conv ${stats.convergenceFusionRate}%`);
+  }
+
+  return parts.join(', ');
 }

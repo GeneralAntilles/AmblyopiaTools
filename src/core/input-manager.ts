@@ -12,7 +12,9 @@ export type InputAction =
   | 'chapter-prev'    // Thumbstick up
   | 'select'          // Primary trigger press
   | 'exit'            // Grip press (either hand)
-  | 'menu';           // Menu button
+  | 'menu'            // Menu button
+  | 'button-a'        // A (right) / X (left) button
+  | 'button-b';       // B (right) / Y (left) button
 
 export type InputActionCallback = (action: InputAction) => void;
 
@@ -25,6 +27,8 @@ interface ControllerState {
   thumbstickWasLeft: boolean;
   thumbstickWasUp: boolean;
   thumbstickWasDown: boolean;
+  buttonAPressed: boolean;
+  buttonBPressed: boolean;
 }
 
 const THUMBSTICK_THRESHOLD = 0.5;
@@ -71,6 +75,8 @@ export class InputManager {
           thumbstickWasLeft: false,
           thumbstickWasUp: false,
           thumbstickWasDown: false,
+          buttonAPressed: false,
+          buttonBPressed: false,
         };
         this.controllerStates.set(source, state);
       }
@@ -112,6 +118,20 @@ export class InputManager {
         this.emit('chapter-prev');
       }
       state.thumbstickWasUp = isUp;
+
+      // A/X button (buttons[4])
+      const btnA = gp.buttons[4]?.pressed ?? false;
+      if (btnA && !state.buttonAPressed) {
+        this.emit('button-a');
+      }
+      state.buttonAPressed = btnA;
+
+      // B/Y button (buttons[5])
+      const btnB = gp.buttons[5]?.pressed ?? false;
+      if (btnB && !state.buttonBPressed) {
+        this.emit('button-b');
+      }
+      state.buttonBPressed = btnB;
     }
   }
 

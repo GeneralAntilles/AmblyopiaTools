@@ -112,6 +112,7 @@ export class MonocularReadingExercise extends BaseExercise {
   private glowMaterial: THREE.MeshBasicMaterial | null = null;
 
   private exitCallback: (() => void) | null = null;
+  private contrastChangedCallback: ((contrast: number) => void) | null = null;
 
   constructor(settings?: Partial<MonocularReadingSettings>) {
     super();
@@ -123,6 +124,10 @@ export class MonocularReadingExercise extends BaseExercise {
 
   setExitCallback(cb: () => void): void {
     this.exitCallback = cb;
+  }
+
+  setContrastChangedCallback(cb: (contrast: number) => void): void {
+    this.contrastChangedCallback = cb;
   }
 
   get isDichoptic(): boolean {
@@ -216,6 +221,12 @@ export class MonocularReadingExercise extends BaseExercise {
           break;
         case 'chapter-prev':
           this.prevChapter();
+          break;
+        case 'button-a':
+          this.adjustContrast(-0.05);
+          break;
+        case 'button-b':
+          this.adjustContrast(0.05);
           break;
         case 'exit':
           this.exitCallback?.();
@@ -410,6 +421,27 @@ export class MonocularReadingExercise extends BaseExercise {
       this.loadChapter(this.currentChapter - 1);
       this.onPageChanged();
     }
+  }
+
+  /**
+   * Adjust fellow eye contrast in-VR (A button = decrease, B button = increase).
+   * Only applies in dichoptic mode.
+   */
+  private adjustContrast(delta: number): void {
+    if (!this.isDichoptic || !this.contrastEngine) return;
+
+    const current = this.contrastEngine.getDominantContrast();
+    const next = Math.max(0, Math.min(1, current + delta));
+    this.contrastEngine.setDominantContrast(next);
+
+    // Clear cached non-training textures (contrast changed)
+    this.textureCache.clear();
+
+    // Re-render non-training eye with new contrast
+    this.renderNonTrainingEye();
+
+    // Notify main.ts to update HUD
+    this.contrastChangedCallback?.(next);
   }
 
   // --- Rendering ---

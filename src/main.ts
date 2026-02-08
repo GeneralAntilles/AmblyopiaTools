@@ -15,6 +15,9 @@ import { Launcher } from './ui/launcher';
 import { VRHud } from './ui/vr-hud';
 import { showSessionSummary } from './ui/session-summary';
 import { MonocularReadingExercise } from './exercises/monocular-reading/monocular-reading';
+import { SuppressionCheckExercise } from './exercises/suppression-check/suppression-check';
+import { BrockStringExercise } from './exercises/brock-string/brock-string';
+import { VergenceTrainingExercise } from './exercises/vergence-training/vergence-training';
 import type { BaseExercise } from './exercises/base-exercise';
 
 // Global instances
@@ -165,6 +168,9 @@ async function handleSessionEnded(): Promise<void> {
   vrBtn.disabled = false;
   vrBtn.textContent = 'Enter VR';
 
+  // Refresh session history on launcher
+  launcher.renderSessionHistory();
+
   console.log('Session ended:', record);
 }
 
@@ -199,6 +205,14 @@ async function startExercise(exerciseId: string): Promise<void> {
         xrManager?.end();
       });
 
+      // In-VR contrast adjustment callback
+      exercise.setContrastChangedCallback((contrast: number) => {
+        const pct = Math.round(contrast * 100);
+        vrHud?.updateStatus(`Dichoptic ${pct}% — A/B adjust, grip exit`);
+        // Persist the new value
+        settingsStore.saveSetting('contrastDominant', contrast);
+      });
+
       await exercise.setup({
         renderer: perEyeRenderer,
         input: inputManager,
@@ -211,13 +225,58 @@ async function startExercise(exerciseId: string): Promise<void> {
       const contrastPct = isDichoptic ? Math.round((contrastEngine?.getDominantContrast() ?? 0.2) * 100) : 0;
       let statusText: string;
       if (isDichoptic) {
-        statusText = `Dichoptic ${contrastPct}% — grip exit`;
+        statusText = `Dichoptic ${contrastPct}% — A/B adjust, grip exit`;
       } else if (chapters) {
         statusText = 'Reading — ↔ page, ↕ chapter, grip exit';
       } else {
         statusText = 'Reading — grip exit';
       }
       vrHud?.updateStatus(statusText);
+      break;
+    }
+
+    case 'suppression-check': {
+      const exercise = new SuppressionCheckExercise();
+      exercise.setExitCallback(() => { xrManager?.end(); });
+
+      await exercise.setup({
+        renderer: perEyeRenderer,
+        input: inputManager,
+        contrast: contrastEngine,
+      });
+
+      activeExercise = exercise;
+      vrHud?.updateStatus('Suppression Check — grip exit');
+      break;
+    }
+
+    case 'brock-string': {
+      const exercise = new BrockStringExercise();
+      exercise.setExitCallback(() => { xrManager?.end(); });
+
+      await exercise.setup({
+        renderer: perEyeRenderer,
+        input: inputManager,
+        contrast: contrastEngine,
+      });
+
+      activeExercise = exercise;
+      vrHud?.updateStatus('Brock String — trigger=fused, A=double, grip exit');
+      break;
+    }
+
+    case 'vergence-training': {
+      const exercise = new VergenceTrainingExercise();
+      exercise.setExitCallback(() => { xrManager?.end(); });
+
+      await exercise.setup({
+        renderer: perEyeRenderer,
+        input: inputManager,
+        contrast: contrastEngine,
+      });
+
+      activeExercise = exercise;
+      vrHud?.updateStatus('Vergence — trigger=fused, A=double, grip exit');
       break;
     }
 
