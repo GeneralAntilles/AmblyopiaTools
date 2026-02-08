@@ -16,7 +16,6 @@ export interface UserSettings {
   trainingEye: 'left' | 'right';
   fontSize: number;
   lineHeight: number;
-  wordsPerPage: number;
   fontFamily: string;
   nonTrainingDisplay: 'blank' | 'fixation' | 'pattern';
   lastExercise: string;
@@ -37,7 +36,6 @@ const DEFAULT_SETTINGS: UserSettings = {
   trainingEye: 'right',
   fontSize: 48,
   lineHeight: 1.6,
-  wordsPerPage: 40,
   fontFamily: 'sans-serif',
   nonTrainingDisplay: 'blank',
   lastExercise: 'monocular-reading',

@@ -271,9 +271,6 @@ export class Launcher {
     this.bindNumber('line-height', settings.lineHeight, (val) =>
       this.store.saveSetting('lineHeight', val)
     );
-    this.bindNumber('words-per-page', settings.wordsPerPage, (val) =>
-      this.store.saveSetting('wordsPerPage', val)
-    );
     this.bindSelect('font-family', settings.fontFamily, (val) =>
       this.store.saveSetting('fontFamily', val)
     );
@@ -342,7 +339,6 @@ export class Launcher {
     return {
       fontSize: parseFloat((document.getElementById('font-size') as HTMLInputElement)?.value ?? '48'),
       lineHeight: parseFloat((document.getElementById('line-height') as HTMLInputElement)?.value ?? '1.6'),
-      wordsPerPage: parseInt((document.getElementById('words-per-page') as HTMLInputElement)?.value ?? '40', 10),
       fontFamily: (document.getElementById('font-family') as HTMLSelectElement)?.value ?? 'sans-serif',
       nonTrainingDisplay: (document.getElementById('non-training-display') as HTMLSelectElement)?.value ?? 'blank',
       trainingEye: (document.getElementById('training-eye') as HTMLSelectElement)?.value ?? 'right',

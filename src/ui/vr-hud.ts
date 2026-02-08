@@ -1,8 +1,8 @@
 /**
  * In-VR floating UI panels.
  *
- * Provides a simple HUD overlay within the VR scene for status info,
- * session timer, and controls hints.
+ * Provides a minimal HUD overlay within the VR scene for status info
+ * and session timer. Positioned above the reading panel.
  */
 
 import * as THREE from 'three';
@@ -20,26 +20,28 @@ export class VRHud {
     this.textRenderer = new TextRenderer();
     this.hudGroup = new THREE.Group();
 
-    // Status panel (top-left in view)
+    // Status panel (top-left, above reading panel)
     this.statusMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.85,
+      depthWrite: false,
     });
-    const statusGeo = new THREE.PlaneGeometry(0.5, 0.08);
+    const statusGeo = new THREE.PlaneGeometry(0.55, 0.05);
     this.statusMesh = new THREE.Mesh(statusGeo, this.statusMaterial);
-    this.statusMesh.position.set(-0.5, 2.3, -2.0);
+    this.statusMesh.position.set(-0.55, 2.22, -2.0);
     this.hudGroup.add(this.statusMesh);
 
-    // Timer (top-right, above text area)
+    // Timer (top-right, above reading panel)
     this.timerMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.85,
+      depthWrite: false,
     });
-    const timerGeo = new THREE.PlaneGeometry(0.35, 0.08);
+    const timerGeo = new THREE.PlaneGeometry(0.3, 0.05);
     this.timerMesh = new THREE.Mesh(timerGeo, this.timerMaterial);
-    this.timerMesh.position.set(0.5, 2.3, -2.0);
+    this.timerMesh.position.set(0.55, 2.22, -2.0);
     this.hudGroup.add(this.timerMesh);
   }
 
@@ -51,13 +53,13 @@ export class VRHud {
     const tex = this.textRenderer.renderToTexture({
       text,
       width: 512,
-      height: 64,
-      fontSize: 24,
+      height: 48,
+      fontSize: 20,
       lineHeight: 1.0,
-      color: '#aaaaaa',
-      background: '#0a0a1200',
+      color: '#6a6a80',
+      background: 'rgba(0,0,0,0)',
       paddingX: 8,
-      paddingY: 8,
+      paddingY: 10,
       align: 'left',
     });
     this.statusMaterial.map = tex;
@@ -72,13 +74,13 @@ export class VRHud {
     const tex = this.textRenderer.renderToTexture({
       text: display,
       width: 256,
-      height: 64,
-      fontSize: 28,
+      height: 48,
+      fontSize: 22,
       lineHeight: 1.0,
-      color: '#888888',
-      background: '#0a0a1200',
+      color: '#6a6a80',
+      background: 'rgba(0,0,0,0)',
       paddingX: 8,
-      paddingY: 8,
+      paddingY: 10,
       align: 'right',
     });
     this.timerMaterial.map = tex;

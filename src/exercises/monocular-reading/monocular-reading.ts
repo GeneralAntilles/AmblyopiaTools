@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
 import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
-import { TextRenderer, paginateText } from '../../utils/text-renderer';
+import { TextRenderer, paginateByFit } from '../../utils/text-renderer';
 import { TextureCache } from '../../utils/texture-cache';
 
 export interface BookChapterData {
@@ -29,7 +29,6 @@ export interface MonocularReadingSettings {
   text: string;
   fontSize: number;
   lineHeight: number;
-  wordsPerPage: number;
   fontFamily: string;
   nonTrainingDisplay: 'blank' | 'fixation' | 'pattern';
   /** Optional multi-chapter content. If provided, overrides `text`. */
@@ -42,10 +41,20 @@ const DEFAULT_READING_SETTINGS: MonocularReadingSettings = {
   text: 'No text provided. Please paste reading text on the launcher page.',
   fontSize: 48,
   lineHeight: 1.6,
-  wordsPerPage: 40,
   fontFamily: 'sans-serif',
   nonTrainingDisplay: 'blank',
 };
+
+// Visual constants
+const PANEL_W = 1.7;
+const PANEL_H = 1.5;
+const PANEL_Y = 1.4;
+const PANEL_Z = -2.0;
+const PANEL_BG = '#111119';
+const PANEL_BORDER = '#2a2a40';
+const PANEL_BORDER_W = 4;
+const PANEL_RADIUS = 48;
+const TEXT_COLOR = '#d4d4dc';
 
 export class MonocularReadingExercise extends BaseExercise {
   readonly name = 'Monocular Reading';
@@ -71,15 +80,23 @@ export class MonocularReadingExercise extends BaseExercise {
   private textRenderer: TextRenderer;
   private textureCache: TextureCache;
 
-  // Three.js objects for the training eye
+  // Scene objects — training eye
   private textMesh: THREE.Mesh | null = null;
   private textMaterial: THREE.MeshBasicMaterial | null = null;
   private pageIndicatorMesh: THREE.Mesh | null = null;
   private pageIndicatorMaterial: THREE.MeshBasicMaterial | null = null;
+  private progressMesh: THREE.Mesh | null = null;
+  private progressMaterial: THREE.MeshBasicMaterial | null = null;
 
-  // Three.js objects for the non-training eye
+  // Scene objects — non-training eye
   private nonTrainingMesh: THREE.Mesh | null = null;
   private nonTrainingMaterial: THREE.MeshBasicMaterial | null = null;
+
+  // Scene objects — shared (both eyes)
+  private envSphereMesh: THREE.Mesh | null = null;
+  private envMaterial: THREE.MeshBasicMaterial | null = null;
+  private glowMesh: THREE.Mesh | null = null;
+  private glowMaterial: THREE.MeshBasicMaterial | null = null;
 
   private exitCallback: (() => void) | null = null;
 
@@ -111,36 +128,60 @@ export class MonocularReadingExercise extends BaseExercise {
     // Paginate first chapter
     this.loadChapter(this.currentChapter);
 
+    // --- Environment (both eyes) ---
+    this.createEnvironment();
+
+    // --- Glow behind text panel (training eye) ---
+    this.createGlow();
+
     // --- Training eye content ---
 
-    const planeGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    const planeGeo = new THREE.PlaneGeometry(PANEL_W, PANEL_H);
     this.textMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
+      transparent: true,
       side: THREE.FrontSide,
     });
     this.textMesh = new THREE.Mesh(planeGeo, this.textMaterial);
-    this.textMesh.position.set(0, 1.4, -2.0);
+    this.textMesh.position.set(0, PANEL_Y, PANEL_Z);
     this.renderer.addToTrainingEye(this.textMesh);
 
-    // Page/chapter indicator below text
-    const indicatorGeo = new THREE.PlaneGeometry(1.2, 0.08);
-    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    // Progress bar below text panel
+    const progressGeo = new THREE.PlaneGeometry(PANEL_W, 0.012);
+    this.progressMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+    });
+    this.progressMesh = new THREE.Mesh(progressGeo, this.progressMaterial);
+    this.progressMesh.position.set(0, PANEL_Y - PANEL_H / 2 - 0.02, PANEL_Z);
+    this.renderer.addToTrainingEye(this.progressMesh);
+
+    // Page/chapter indicator below progress bar
+    const indicatorGeo = new THREE.PlaneGeometry(1.4, 0.06);
+    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+    });
     this.pageIndicatorMesh = new THREE.Mesh(indicatorGeo, this.pageIndicatorMaterial);
-    this.pageIndicatorMesh.position.set(0, 0.52, -2.0);
+    this.pageIndicatorMesh.position.set(0, PANEL_Y - PANEL_H / 2 - 0.06, PANEL_Z);
     this.renderer.addToTrainingEye(this.pageIndicatorMesh);
 
     // --- Non-training eye content ---
 
-    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const nonTrainingGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+    });
+    const nonTrainingGeo = new THREE.PlaneGeometry(PANEL_W, PANEL_H);
     this.nonTrainingMesh = new THREE.Mesh(nonTrainingGeo, this.nonTrainingMaterial);
-    this.nonTrainingMesh.position.set(0, 1.4, -2.0);
+    this.nonTrainingMesh.position.set(0, PANEL_Y, PANEL_Z);
     this.renderer.addToNonTrainingEye(this.nonTrainingMesh);
 
     // Render initial content
     this.renderCurrentPage();
     this.renderNonTrainingEye();
     this.renderPageIndicator();
+    this.renderProgressBar();
 
     // Set up input
     this.unsubInput = this.input.onAction((action) => {
@@ -177,23 +218,40 @@ export class MonocularReadingExercise extends BaseExercise {
     if (this.renderer) {
       if (this.textMesh) this.renderer.removeFromScene(this.textMesh);
       if (this.pageIndicatorMesh) this.renderer.removeFromScene(this.pageIndicatorMesh);
+      if (this.progressMesh) this.renderer.removeFromScene(this.progressMesh);
       if (this.nonTrainingMesh) this.renderer.removeFromScene(this.nonTrainingMesh);
+      if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
+      if (this.glowMesh) this.renderer.removeFromScene(this.glowMesh);
     }
 
     this.textMesh?.geometry.dispose();
     this.textMaterial?.dispose();
     this.pageIndicatorMesh?.geometry.dispose();
     this.pageIndicatorMaterial?.dispose();
+    this.progressMesh?.geometry.dispose();
+    this.progressMaterial?.dispose();
     this.nonTrainingMesh?.geometry.dispose();
     this.nonTrainingMaterial?.dispose();
+    this.envSphereMesh?.geometry.dispose();
+    this.envMaterial?.map?.dispose();
+    this.envMaterial?.dispose();
+    this.glowMesh?.geometry.dispose();
+    this.glowMaterial?.map?.dispose();
+    this.glowMaterial?.dispose();
     this.textureCache.clear();
 
     this.textMesh = null;
     this.textMaterial = null;
     this.pageIndicatorMesh = null;
     this.pageIndicatorMaterial = null;
+    this.progressMesh = null;
+    this.progressMaterial = null;
     this.nonTrainingMesh = null;
     this.nonTrainingMaterial = null;
+    this.envSphereMesh = null;
+    this.envMaterial = null;
+    this.glowMesh = null;
+    this.glowMaterial = null;
     this.renderer = null;
     this.input = null;
   }
@@ -208,20 +266,83 @@ export class MonocularReadingExercise extends BaseExercise {
       chaptersRead: this.chaptersRead,
       totalChapters: this.chapters.length,
       currentChapter: this.currentChapter + 1,
-      wordsPerPage: this.settings.wordsPerPage,
-      estimatedWordsRead: this.pagesRead * this.settings.wordsPerPage,
     };
   }
+
+  // --- Environment ---
+
+  private createEnvironment(): void {
+    if (!this.renderer) return;
+
+    // Gradient sky dome — subtle dark ambient, not pure black
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+    gradient.addColorStop(0.0, '#0e0e1c'); // overhead — slight blue glow
+    gradient.addColorStop(0.35, '#0a0a14');
+    gradient.addColorStop(0.7, '#060610');
+    gradient.addColorStop(1.0, '#040408'); // floor level — very dark
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 4, 512);
+
+    const envTexture = new THREE.CanvasTexture(canvas);
+    const sphereGeo = new THREE.SphereGeometry(40, 32, 16);
+    this.envMaterial = new THREE.MeshBasicMaterial({
+      map: envTexture,
+      side: THREE.BackSide,
+    });
+    this.envSphereMesh = new THREE.Mesh(sphereGeo, this.envMaterial);
+    this.renderer.addToBothEyes(this.envSphereMesh);
+  }
+
+  private createGlow(): void {
+    if (!this.renderer) return;
+
+    // Soft radial glow behind the reading panel
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(256, 256, 0, 256, 256, 256);
+    gradient.addColorStop(0, 'rgba(30, 45, 90, 0.12)');
+    gradient.addColorStop(0.5, 'rgba(15, 25, 50, 0.05)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 512, 512);
+
+    const glowTexture = new THREE.CanvasTexture(canvas);
+    const glowGeo = new THREE.PlaneGeometry(PANEL_W * 1.8, PANEL_H * 1.8);
+    this.glowMaterial = new THREE.MeshBasicMaterial({
+      map: glowTexture,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.glowMesh = new THREE.Mesh(glowGeo, this.glowMaterial);
+    this.glowMesh.position.set(0, PANEL_Y, PANEL_Z - 0.05);
+    this.renderer.addToTrainingEye(this.glowMesh);
+  }
+
+  // --- Pagination ---
 
   private loadChapter(index: number): void {
     const chapter = this.chapters[index];
     if (!chapter) return;
 
     this.currentChapter = index;
-    this.pages = paginateText(chapter.text, this.settings.wordsPerPage);
+    this.pages = paginateByFit(chapter.text, {
+      fontSize: this.settings.fontSize,
+      lineHeight: this.settings.lineHeight,
+      fontFamily: this.settings.fontFamily,
+      paddingX: 100,
+      paddingY: 100,
+    });
     this.currentPage = 0;
     this.textureCache.clear();
   }
+
+  // --- Navigation ---
 
   private nextPage(): void {
     if (this.currentPage < this.pages.length - 1) {
@@ -229,8 +350,8 @@ export class MonocularReadingExercise extends BaseExercise {
       this.pagesRead++;
       this.renderCurrentPage();
       this.renderPageIndicator();
+      this.renderProgressBar();
     } else if (this.currentChapter < this.chapters.length - 1) {
-      // Auto-advance to next chapter at end of pages
       this.nextChapter();
     }
   }
@@ -240,13 +361,14 @@ export class MonocularReadingExercise extends BaseExercise {
       this.currentPage--;
       this.renderCurrentPage();
       this.renderPageIndicator();
+      this.renderProgressBar();
     } else if (this.currentChapter > 0) {
-      // Go to end of previous chapter
       this.currentChapter--;
       this.loadChapter(this.currentChapter);
       this.currentPage = Math.max(0, this.pages.length - 1);
       this.renderCurrentPage();
       this.renderPageIndicator();
+      this.renderProgressBar();
     }
   }
 
@@ -256,6 +378,7 @@ export class MonocularReadingExercise extends BaseExercise {
       this.loadChapter(this.currentChapter + 1);
       this.renderCurrentPage();
       this.renderPageIndicator();
+      this.renderProgressBar();
     }
   }
 
@@ -264,8 +387,11 @@ export class MonocularReadingExercise extends BaseExercise {
       this.loadChapter(this.currentChapter - 1);
       this.renderCurrentPage();
       this.renderPageIndicator();
+      this.renderProgressBar();
     }
   }
+
+  // --- Rendering ---
 
   private renderCurrentPage(): void {
     if (!this.textMaterial) return;
@@ -279,8 +405,13 @@ export class MonocularReadingExercise extends BaseExercise {
         fontSize: this.settings.fontSize,
         lineHeight: this.settings.lineHeight,
         fontFamily: this.settings.fontFamily,
-        color: '#e0e0e0',
-        background: '#0a0a0f',
+        color: TEXT_COLOR,
+        background: PANEL_BG,
+        paddingX: 100,
+        paddingY: 100,
+        borderRadius: PANEL_RADIUS,
+        borderColor: PANEL_BORDER,
+        borderWidth: PANEL_BORDER_W,
       });
       this.textureCache.set(cacheKey, texture);
     }
@@ -296,7 +427,7 @@ export class MonocularReadingExercise extends BaseExercise {
 
     switch (this.settings.nonTrainingDisplay) {
       case 'fixation':
-        texture = this.textRenderer.renderFixationCross(2048, '#444444', '#0a0a0f');
+        texture = this.textRenderer.renderFixationCross(2048, '#3a3a50', PANEL_BG);
         break;
       case 'pattern':
         texture = this.textRenderer.renderNoisePattern();
@@ -305,7 +436,10 @@ export class MonocularReadingExercise extends BaseExercise {
       default:
         texture = this.textRenderer.renderToTexture({
           text: '',
-          background: '#0a0a0f',
+          background: PANEL_BG,
+          borderRadius: PANEL_RADIUS,
+          borderColor: PANEL_BORDER,
+          borderWidth: PANEL_BORDER_W,
         });
         break;
     }
@@ -314,32 +448,83 @@ export class MonocularReadingExercise extends BaseExercise {
     this.nonTrainingMaterial.needsUpdate = true;
   }
 
+  private renderProgressBar(): void {
+    if (!this.progressMaterial) return;
+
+    const progress = this.pages.length > 1
+      ? (this.currentPage) / (this.pages.length - 1)
+      : 1;
+
+    const w = 1024;
+    const h = 16;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+
+    // Track background
+    ctx.fillStyle = '#1a1a2c';
+    this.roundRectFill(ctx, 0, 2, w, h - 4, (h - 4) / 2);
+
+    // Fill
+    const fillW = Math.max(h - 4, w * progress);
+    ctx.fillStyle = '#3060a0';
+    this.roundRectFill(ctx, 0, 2, fillW, h - 4, (h - 4) / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    this.progressMaterial.map = texture;
+    this.progressMaterial.needsUpdate = true;
+  }
+
   private renderPageIndicator(): void {
     if (!this.pageIndicatorMaterial) return;
 
     const chapterTitle = this.chapters[this.currentChapter]?.title;
     const hasChapters = this.chapters.length > 1;
 
-    let text = `Page ${this.currentPage + 1} / ${this.pages.length}`;
+    let text = `Page ${this.currentPage + 1} of ${this.pages.length}`;
     if (hasChapters) {
       const label = chapterTitle || `Chapter ${this.currentChapter + 1}`;
-      text = `${label}  |  Page ${this.currentPage + 1} / ${this.pages.length}`;
+      text = `${label}  \u00b7  Page ${this.currentPage + 1} of ${this.pages.length}`;
     }
 
     const texture = this.textRenderer.renderToTexture({
       text,
       width: 1024,
-      height: 64,
-      fontSize: 24,
+      height: 48,
+      fontSize: 20,
       lineHeight: 1.0,
-      color: '#666666',
-      background: '#0a0a0f',
+      color: '#5a5a70',
+      background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 10,
-      paddingY: 12,
+      paddingY: 10,
     });
 
     this.pageIndicatorMaterial.map = texture;
     this.pageIndicatorMaterial.needsUpdate = true;
+  }
+
+  // Canvas helper
+  private roundRectFill(
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number,
+    w: number, h: number, r: number
+  ): void {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.fill();
   }
 }

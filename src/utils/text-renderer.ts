@@ -22,7 +22,7 @@ export interface TextRenderOptions {
   fontFamily?: string;
   /** Text color */
   color?: string;
-  /** Background color */
+  /** Background color (supports rgba for transparency) */
   background?: string;
   /** Horizontal padding in pixels */
   paddingX?: number;
@@ -30,6 +30,12 @@ export interface TextRenderOptions {
   paddingY?: number;
   /** Text alignment */
   align?: 'left' | 'center' | 'right';
+  /** Border radius in pixels (0 = sharp corners) */
+  borderRadius?: number;
+  /** Border color */
+  borderColor?: string;
+  /** Border width in pixels */
+  borderWidth?: number;
 }
 
 const DEFAULT_OPTIONS: Required<TextRenderOptions> = {
@@ -39,11 +45,14 @@ const DEFAULT_OPTIONS: Required<TextRenderOptions> = {
   fontSize: 48,
   lineHeight: 1.6,
   fontFamily: 'sans-serif',
-  color: '#e0e0e0',
-  background: '#000000',
+  color: '#d4d4dc',
+  background: '#12121c',
   paddingX: 80,
   paddingY: 80,
   align: 'left',
+  borderRadius: 0,
+  borderColor: '',
+  borderWidth: 0,
 };
 
 /**
@@ -60,6 +69,31 @@ function createCanvas(width: number, height: number): {
   return { canvas, ctx };
 }
 
+/**
+ * Draw a rounded rectangle path on the context.
+ */
+function drawRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
 export class TextRenderer {
   /**
    * Render text to a Three.js CanvasTexture.
@@ -69,9 +103,35 @@ export class TextRenderer {
     const o = { ...DEFAULT_OPTIONS, ...opts };
     const { canvas, ctx } = createCanvas(o.width, o.height);
 
-    // Background
-    ctx.fillStyle = o.background;
-    ctx.fillRect(0, 0, o.width, o.height);
+    // Background — rounded or flat
+    if (o.borderRadius > 0) {
+      ctx.clearRect(0, 0, o.width, o.height);
+      drawRoundedRect(ctx, 0, 0, o.width, o.height, o.borderRadius);
+      ctx.fillStyle = o.background;
+      ctx.fill();
+      if (o.borderColor && o.borderWidth > 0) {
+        ctx.strokeStyle = o.borderColor;
+        ctx.lineWidth = o.borderWidth;
+        drawRoundedRect(
+          ctx,
+          o.borderWidth / 2, o.borderWidth / 2,
+          o.width - o.borderWidth, o.height - o.borderWidth,
+          o.borderRadius
+        );
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = o.background;
+      ctx.fillRect(0, 0, o.width, o.height);
+      if (o.borderColor && o.borderWidth > 0) {
+        ctx.strokeStyle = o.borderColor;
+        ctx.lineWidth = o.borderWidth;
+        ctx.strokeRect(
+          o.borderWidth / 2, o.borderWidth / 2,
+          o.width - o.borderWidth, o.height - o.borderWidth
+        );
+      }
+    }
 
     // Font setup
     ctx.fillStyle = o.color;
@@ -114,7 +174,7 @@ export class TextRenderer {
   /**
    * Render a fixation cross texture.
    */
-  renderFixationCross(size = 2048, crossColor = '#444444', bgColor = '#000000'): THREE.CanvasTexture {
+  renderFixationCross(size = 2048, crossColor = '#444444', bgColor = '#12121c'): THREE.CanvasTexture {
     const { canvas, ctx } = createCanvas(size, size);
 
     ctx.fillStyle = bgColor;
@@ -142,7 +202,7 @@ export class TextRenderer {
   renderNoisePattern(size = 2048, contrast = 0.05): THREE.CanvasTexture {
     const { canvas, ctx } = createCanvas(size, size);
 
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#12121c';
     ctx.fillRect(0, 0, size, size);
 
     const maxBrightness = Math.floor(255 * contrast);
@@ -174,6 +234,9 @@ export class TextRenderer {
   }
 }
 
+/**
+ * Word-wrap text to fit within a max pixel width.
+ */
 function wordWrap(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -212,16 +275,34 @@ function wordWrap(
 }
 
 /**
- * Paginate text into pages of approximately `wordsPerPage` words.
+ * Paginate text by fitting lines to the available canvas area.
+ * Returns pages of text where each page fills the rendering area
+ * based on font size, line height, and canvas dimensions.
  */
-export function paginateText(text: string, wordsPerPage: number): string[] {
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  const pages: string[] = [];
+export function paginateByFit(
+  text: string,
+  opts?: Partial<Omit<TextRenderOptions, 'text'>>
+): string[] {
+  const o = { ...DEFAULT_OPTIONS, ...opts };
+  const { ctx } = createCanvas(o.width, o.height);
+  ctx.font = `${o.fontSize}px ${o.fontFamily}`;
 
-  for (let i = 0; i < words.length; i += wordsPerPage) {
-    const pageWords = words.slice(i, i + wordsPerPage);
-    pages.push(pageWords.join(' '));
+  const maxWidth = o.width - o.paddingX * 2;
+  const lines = wordWrap(ctx, text, maxWidth);
+  const lineHeightPx = o.fontSize * o.lineHeight;
+  const availableHeight = o.height - o.paddingY * 2;
+  const linesPerPage = Math.max(1, Math.floor(availableHeight / lineHeightPx));
+
+  const pages: string[] = [];
+  for (let i = 0; i < lines.length; i += linesPerPage) {
+    const pageLines = lines.slice(i, i + linesPerPage);
+    // Trim leading/trailing blank lines from each page
+    while (pageLines.length > 0 && pageLines[0] === '') pageLines.shift();
+    while (pageLines.length > 0 && pageLines[pageLines.length - 1] === '') pageLines.pop();
+    if (pageLines.length > 0) {
+      pages.push(pageLines.join('\n'));
+    }
   }
 
-  return pages;
+  return pages.length > 0 ? pages : [''];
 }

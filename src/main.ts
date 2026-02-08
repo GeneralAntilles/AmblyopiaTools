@@ -189,7 +189,6 @@ async function startExercise(exerciseId: string): Promise<void> {
         text: readingText || undefined,
         fontSize: currentSettings.fontSize as number,
         lineHeight: currentSettings.lineHeight as number,
-        wordsPerPage: currentSettings.wordsPerPage as number,
         fontFamily: currentSettings.fontFamily as string,
         nonTrainingDisplay: currentSettings.nonTrainingDisplay as 'blank' | 'fixation' | 'pattern',
         chapters,
