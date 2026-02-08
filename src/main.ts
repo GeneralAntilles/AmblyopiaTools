@@ -18,6 +18,7 @@ import { MonocularReadingExercise } from './exercises/monocular-reading/monocula
 import { SuppressionCheckExercise } from './exercises/suppression-check/suppression-check';
 import { BrockStringExercise } from './exercises/brock-string/brock-string';
 import { VergenceTrainingExercise } from './exercises/vergence-training/vergence-training';
+import { DepthScaffoldingExercise } from './exercises/depth-scaffolding/depth-scaffolding';
 import type { BaseExercise } from './exercises/base-exercise';
 
 // Global instances
@@ -277,6 +278,21 @@ async function startExercise(exerciseId: string): Promise<void> {
 
       activeExercise = exercise;
       vrHud?.updateStatus('Vergence — trigger=fused, A=double, grip exit');
+      break;
+    }
+
+    case 'depth-scaffolding': {
+      const exercise = new DepthScaffoldingExercise();
+      exercise.setExitCallback(() => { xrManager?.end(); });
+
+      await exercise.setup({
+        renderer: perEyeRenderer,
+        input: inputManager,
+        contrast: contrastEngine,
+      });
+
+      activeExercise = exercise;
+      vrHud?.updateStatus('Depth — ←↑→ select, trigger confirm, grip exit');
       break;
     }
 

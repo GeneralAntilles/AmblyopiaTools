@@ -26,6 +26,14 @@ const EXERCISES: ExerciseDefinition[] = [
     available: true,
   },
   {
+    id: 'depth-scaffolding',
+    name: 'Depth Scaffolding',
+    description:
+      'Stereopsis trainer with progressive cue removal. Starts with size + brightness cues alongside stereo, strips them away. VR-unique — impossible on flat screens.',
+    type: 'binocular',
+    available: true,
+  },
+  {
     id: 'dichoptic-tetris',
     name: 'Dichoptic Tetris',
     description:
@@ -159,6 +167,7 @@ export class Launcher {
       'suppression-check': 'Suppression Check',
       'brock-string': 'Brock String',
       'vergence-training': 'Vergence Training',
+      'depth-scaffolding': 'Depth Scaffolding',
     };
 
     const statsHtml = `
