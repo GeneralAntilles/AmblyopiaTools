@@ -58,6 +58,9 @@ export function showSessionSummary(
   if ('avgReactionTimeMs' in stats) {
     rows.push({ label: 'Avg Reaction Time', value: `${stats.avgReactionTimeMs}ms` });
   }
+  if ('avgVergenceOffsetMm' in stats && Number(stats.vergenceOffsetCount) > 0) {
+    rows.push({ label: 'Avg Vergence Offset', value: `${stats.avgVergenceOffsetMm}mm` });
+  }
 
   statsContainer.innerHTML = rows
     .map(

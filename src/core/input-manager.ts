@@ -160,6 +160,22 @@ export class InputManager {
     }
   }
 
+  /**
+   * Get current thumbstick axis values (continuous, not flick-based).
+   * Returns the first controller with non-zero input.
+   */
+  getThumbstickAxes(): { x: number; y: number } {
+    if (!this.session) return { x: 0, y: 0 };
+    for (const source of this.session.inputSources) {
+      if (!source.gamepad) continue;
+      const state = this.controllerStates.get(source);
+      if (state && (state.thumbstickX !== 0 || state.thumbstickY !== 0)) {
+        return { x: state.thumbstickX, y: state.thumbstickY };
+      }
+    }
+    return { x: 0, y: 0 };
+  }
+
   dispose(): void {
     if (this.session) {
       this.session.removeEventListener('selectstart', this.handleSelect);

@@ -13,13 +13,18 @@
  * is often distance-dependent. Dots scale with distance to subtend
  * similar visual angles.
  *
+ * On fusion responses, enters a vergence offset measurement phase:
+ * a crosshair on the non-training eye is moved via joystick to where
+ * the user perceives the training eye's red dot. The offset measures
+ * vergence error without moving the training eye's stimulus.
+ *
  * User reports how many dots they see:
  *   - Trigger: 4 dots (fusion — both eyes contributing)
  *   - A button: 2 dots (non-training eye suppressed)
  *   - B button: 3 dots (training eye suppressed)
  *   - Thumbstick down: 5 dots (diplopia — white dot doubled)
  *
- * Runs multiple trials and tracks suppression over time.
+ * Runs 12 trials (4 per distance) and tracks suppression + vergence.
  */
 
 import * as THREE from 'three';
@@ -40,6 +45,7 @@ interface TrialResult {
   response: SuppressionResult;
   reactionTimeMs: number;
   condition: TrialCondition;
+  vergenceOffset?: { x: number; y: number };
 }
 
 const TOTAL_TRIALS = 12;
@@ -67,11 +73,15 @@ const RED = 0xdd4444;
 const GREEN = 0x44bb66;
 const WHITE = 0xeeeedd;
 const FIXATION_COLOR = 0x9688a0;
+const CROSSHAIR_COLOR = 0xdbb870;
 const PANEL_BG = '#16111e';
 
 // Timing
-const INTER_TRIAL_MS = 800;   // Fixation cross display time
-const FADE_IN_MS = 300;       // Dot fade-in duration
+const INTER_TRIAL_MS = 800;
+const FADE_IN_MS = 300;
+
+// Crosshair movement
+const CROSSHAIR_SPEED = 0.25; // m/s at reference distance
 
 export class SuppressionCheckExercise extends BaseExercise {
   readonly name = 'Suppression Check';
@@ -84,7 +94,6 @@ export class SuppressionCheckExercise extends BaseExercise {
   private textRenderer: TextRenderer;
 
   // Scene objects
-  private dotGroup: THREE.Group | null = null;
   private redDot: THREE.Mesh | null = null;
   private redMaterial: THREE.MeshBasicMaterial | null = null;
   private greenDot1: THREE.Mesh | null = null;
@@ -93,8 +102,10 @@ export class SuppressionCheckExercise extends BaseExercise {
   private greenMat2: THREE.MeshBasicMaterial | null = null;
   private whiteDot: THREE.Mesh | null = null;
   private whiteMaterial: THREE.MeshBasicMaterial | null = null;
-  private fixationMesh: THREE.Mesh | null = null;
+  private fixationGroup: THREE.Group | null = null;
   private fixationMaterial: THREE.MeshBasicMaterial | null = null;
+  private crosshairGroup: THREE.Group | null = null;
+  private crosshairMaterial: THREE.MeshBasicMaterial | null = null;
   private envSphereMesh: THREE.Mesh | null = null;
   private envMaterial: THREE.MeshBasicMaterial | null = null;
   private instructionMesh: THREE.Mesh | null = null;
@@ -118,6 +129,12 @@ export class SuppressionCheckExercise extends BaseExercise {
   private fadingIn: boolean = false;
   private fadeStartTime: number = 0;
 
+  // Vergence offset measurement
+  private offsetPhase: boolean = false;
+  private crosshairOffsetX: number = 0;
+  private crosshairOffsetY: number = 0;
+  private pendingResult: TrialResult | null = null;
+
   private exitCallback: (() => void) | null = null;
 
   constructor() {
@@ -135,17 +152,12 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.results = [];
     this.currentTrial = 0;
 
-    // Generate randomized trial conditions
     this.trialConditions = this.generateTrialConditions();
 
-    // Environment
     this.createEnvironment();
-
-    // Create dot group and dots
     this.createDots();
-
-    // Fixation cross (both eyes)
     this.createFixationCross();
+    this.createCrosshair();
 
     // Instruction panel (both eyes)
     const instructGeo = new THREE.PlaneGeometry(1.4, 0.25);
@@ -170,7 +182,6 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.feedbackMesh.visible = false;
     this.renderer.addToBothEyes(this.feedbackMesh);
 
-    // Show instructions
     this.renderInstructions();
 
     // Input
@@ -180,18 +191,28 @@ export class SuppressionCheckExercise extends BaseExercise {
         return;
       }
 
+      // During offset measurement, only trigger and exit work
+      if (this.offsetPhase) {
+        if (action === 'select') {
+          this.confirmOffset();
+        } else if (action === 'exit') {
+          this.exitCallback?.();
+        }
+        return;
+      }
+
       if (this.awaitingResponse) {
         switch (action) {
-          case 'select': // Trigger = 4 dots (fusion)
+          case 'select':
             this.recordResponse('fusion');
             break;
-          case 'button-a': // A = 2 dots (fellow suppressed)
+          case 'button-a':
             this.recordResponse('fellow-suppressed');
             break;
-          case 'button-b': // B = 3 dots (training suppressed)
+          case 'button-b':
             this.recordResponse('training-suppressed');
             break;
-          case 'chapter-next': // Thumbstick down = 5 dots (diplopia)
+          case 'chapter-next':
             this.recordResponse('diplopia');
             break;
         }
@@ -202,15 +223,41 @@ export class SuppressionCheckExercise extends BaseExercise {
       }
     });
 
-    // Start first trial with brief fixation
     this.beginInterTrial();
     this.markStarted();
   }
 
-  update(_dt: number): void {
+  update(dt: number): void {
     const now = Date.now();
 
-    // Feedback timeout → inter-trial or results
+    // Crosshair movement during offset phase
+    if (this.offsetPhase && this.crosshairGroup && this.input) {
+      const axes = this.input.getThumbstickAxes();
+      const dist = Math.abs(this.trialConditions[this.currentTrial]?.distance ?? -1.8);
+      const speed = CROSSHAIR_SPEED * (dist / REF_DISTANCE);
+      this.crosshairOffsetX += axes.x * speed * dt;
+      this.crosshairOffsetY -= axes.y * speed * dt; // Y inverted on Quest
+
+      // Clamp to reasonable range
+      const maxOffset = 0.3 * (dist / REF_DISTANCE);
+      this.crosshairOffsetX = THREE.MathUtils.clamp(this.crosshairOffsetX, -maxOffset, maxOffset);
+      this.crosshairOffsetY = THREE.MathUtils.clamp(this.crosshairOffsetY, -maxOffset, maxOffset);
+
+      if (this.redDot) {
+        this.crosshairGroup.position.set(
+          this.redDot.position.x + this.crosshairOffsetX,
+          this.redDot.position.y + this.crosshairOffsetY,
+          this.redDot.position.z,
+        );
+      }
+
+      // Pulse crosshair gently
+      if (this.crosshairMaterial) {
+        this.crosshairMaterial.opacity = 0.6 + 0.3 * Math.sin(now * 0.004);
+      }
+    }
+
+    // Feedback timeout -> inter-trial or results
     if (this.showingFeedback && now > this.feedbackTimeout) {
       this.showingFeedback = false;
       this.feedbackMesh!.visible = false;
@@ -222,10 +269,10 @@ export class SuppressionCheckExercise extends BaseExercise {
       }
     }
 
-    // Inter-trial fixation → start trial with fade-in
+    // Inter-trial fixation -> start trial with fade-in
     if (this.interTrialActive && now > this.interTrialEndTime) {
       this.interTrialActive = false;
-      this.fixationMesh!.visible = false;
+      if (this.fixationGroup) this.fixationGroup.visible = false;
       this.startTrial();
     }
 
@@ -233,9 +280,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     if (this.fadingIn) {
       const elapsed = now - this.fadeStartTime;
       const t = Math.min(1, elapsed / FADE_IN_MS);
-
-      // Ease-out
-      const alpha = 1 - (1 - t) * (1 - t);
+      const alpha = 1 - (1 - t) * (1 - t); // ease-out
 
       if (this.redMaterial) this.redMaterial.opacity = alpha;
       if (this.greenMat1) this.greenMat1.opacity = alpha;
@@ -257,7 +302,8 @@ export class SuppressionCheckExercise extends BaseExercise {
       if (this.greenDot1) this.renderer.removeFromScene(this.greenDot1);
       if (this.greenDot2) this.renderer.removeFromScene(this.greenDot2);
       if (this.whiteDot) this.renderer.removeFromScene(this.whiteDot);
-      if (this.fixationMesh) this.renderer.removeFromScene(this.fixationMesh);
+      if (this.fixationGroup) this.renderer.removeFromScene(this.fixationGroup);
+      if (this.crosshairGroup) this.renderer.removeFromScene(this.crosshairGroup);
       if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
       if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
@@ -271,8 +317,14 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.greenMat2?.dispose();
     this.whiteDot?.geometry.dispose();
     this.whiteMaterial?.dispose();
-    this.fixationMesh?.geometry.dispose();
+    this.fixationGroup?.traverse((child) => {
+      if (child instanceof THREE.Mesh) child.geometry.dispose();
+    });
     this.fixationMaterial?.dispose();
+    this.crosshairGroup?.traverse((child) => {
+      if (child instanceof THREE.Mesh) child.geometry.dispose();
+    });
+    this.crosshairMaterial?.dispose();
     this.envSphereMesh?.geometry.dispose();
     this.envMaterial?.map?.dispose();
     this.envMaterial?.dispose();
@@ -302,10 +354,23 @@ export class SuppressionCheckExercise extends BaseExercise {
 
     const total = this.results.length || 1;
 
-    // Per-distance fusion rates
     const perDistance: Record<string, number> = {};
     for (const [label, data] of Object.entries(distanceCounts)) {
       perDistance[label] = Math.round((data.fusion / data.total) * 100);
+    }
+
+    // Vergence offset stats
+    const offsets = this.results
+      .filter((r) => r.vergenceOffset)
+      .map((r) => r.vergenceOffset!);
+
+    let avgOffsetMm = 0;
+    if (offsets.length > 0) {
+      const totalMag = offsets.reduce(
+        (sum, o) => sum + Math.sqrt(o.x * o.x + o.y * o.y),
+        0,
+      );
+      avgOffsetMm = Math.round((totalMag / offsets.length) * 1000);
     }
 
     return {
@@ -320,6 +385,8 @@ export class SuppressionCheckExercise extends BaseExercise {
       nearFusionRate: perDistance['near'] ?? 0,
       mediumFusionRate: perDistance['medium'] ?? 0,
       farFusionRate: perDistance['far'] ?? 0,
+      avgVergenceOffsetMm: avgOffsetMm,
+      vergenceOffsetCount: offsets.length,
     };
   }
 
@@ -328,7 +395,6 @@ export class SuppressionCheckExercise extends BaseExercise {
   private generateTrialConditions(): TrialCondition[] {
     const conditions: TrialCondition[] = [];
 
-    // 4 trials per distance (12 total), randomly shuffled
     for (const dist of DISTANCES) {
       for (let i = 0; i < 4; i++) {
         conditions.push({
@@ -377,28 +443,24 @@ export class SuppressionCheckExercise extends BaseExercise {
 
     const dotGeo = new THREE.CircleGeometry(DOT_RADIUS_BASE, 32);
 
-    // Red dot — training eye only (Layer 1)
     this.redMaterial = new THREE.MeshBasicMaterial({
       color: RED, transparent: true, opacity: 0,
     });
     this.redDot = new THREE.Mesh(dotGeo.clone(), this.redMaterial);
     this.renderer.addToTrainingEye(this.redDot);
 
-    // Green dot 1 — non-training eye only (Layer 2)
     this.greenMat1 = new THREE.MeshBasicMaterial({
       color: GREEN, transparent: true, opacity: 0,
     });
     this.greenDot1 = new THREE.Mesh(dotGeo.clone(), this.greenMat1);
     this.renderer.addToNonTrainingEye(this.greenDot1);
 
-    // Green dot 2 — non-training eye only (Layer 2)
     this.greenMat2 = new THREE.MeshBasicMaterial({
       color: GREEN, transparent: true, opacity: 0,
     });
     this.greenDot2 = new THREE.Mesh(dotGeo.clone(), this.greenMat2);
     this.renderer.addToNonTrainingEye(this.greenDot2);
 
-    // White dot — both eyes (Layer 0)
     this.whiteMaterial = new THREE.MeshBasicMaterial({
       color: WHITE, transparent: true, opacity: 0,
     });
@@ -409,7 +471,6 @@ export class SuppressionCheckExercise extends BaseExercise {
   private createFixationCross(): void {
     if (!this.renderer) return;
 
-    // Small cross made of two thin rectangles
     const group = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({
       color: FIXATION_COLOR, transparent: true, opacity: 0.6,
@@ -422,21 +483,38 @@ export class SuppressionCheckExercise extends BaseExercise {
     group.position.set(0, DOT_Y, -1.8);
     group.visible = false;
 
-    this.fixationMesh = group as unknown as THREE.Mesh;
+    this.fixationGroup = group;
     this.renderer.addToBothEyes(group);
+  }
+
+  private createCrosshair(): void {
+    if (!this.renderer) return;
+
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({
+      color: CROSSHAIR_COLOR, transparent: true, opacity: 0.8, depthWrite: false,
+    });
+    this.crosshairMaterial = mat;
+
+    // "+" shape — slightly larger than the dots
+    const hBar = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.005), mat);
+    const vBar = new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.08), mat);
+    group.add(hBar, vBar);
+    group.visible = false;
+
+    this.crosshairGroup = group;
+    this.renderer.addToNonTrainingEye(group);
   }
 
   // --- Trial Logic ---
 
   private beginInterTrial(): void {
-    // Hide dots during inter-trial
     this.setDotsOpacity(0);
 
-    // Show fixation cross at the upcoming trial distance
     const condition = this.trialConditions[this.currentTrial];
-    if (this.fixationMesh) {
-      this.fixationMesh.position.z = condition.distance;
-      this.fixationMesh.visible = true;
+    if (this.fixationGroup) {
+      this.fixationGroup.position.z = condition.distance;
+      this.fixationGroup.visible = true;
     }
 
     this.interTrialActive = true;
@@ -447,10 +525,8 @@ export class SuppressionCheckExercise extends BaseExercise {
   private startTrial(): void {
     const condition = this.trialConditions[this.currentTrial];
 
-    // Position and scale dots for this trial's distance
     this.positionDots(condition);
 
-    // Start fade-in
     this.fadingIn = true;
     this.fadeStartTime = Date.now();
 
@@ -465,16 +541,13 @@ export class SuppressionCheckExercise extends BaseExercise {
     const spread = DOT_SPREAD_BASE * scale;
     const rot = condition.rotation;
 
-    // Diamond offsets rotated by condition.rotation
-    // Original: top (0, +spread), left (-spread, 0), right (+spread, 0), bottom (0, -spread)
     const positions = [
-      { dx: Math.sin(rot) * spread, dy: Math.cos(rot) * spread },         // Red (was top)
-      { dx: Math.sin(rot - Math.PI / 2) * spread, dy: Math.cos(rot - Math.PI / 2) * spread }, // Green1 (was left)
-      { dx: Math.sin(rot + Math.PI / 2) * spread, dy: Math.cos(rot + Math.PI / 2) * spread }, // Green2 (was right)
-      { dx: Math.sin(rot + Math.PI) * spread, dy: Math.cos(rot + Math.PI) * spread },         // White (was bottom)
+      { dx: Math.sin(rot) * spread, dy: Math.cos(rot) * spread },
+      { dx: Math.sin(rot - Math.PI / 2) * spread, dy: Math.cos(rot - Math.PI / 2) * spread },
+      { dx: Math.sin(rot + Math.PI / 2) * spread, dy: Math.cos(rot + Math.PI / 2) * spread },
+      { dx: Math.sin(rot + Math.PI) * spread, dy: Math.cos(rot + Math.PI) * spread },
     ];
 
-    // Scale dot geometry for distance
     const dotScale = scale;
 
     if (this.redDot) {
@@ -508,15 +581,83 @@ export class SuppressionCheckExercise extends BaseExercise {
 
     const reactionTimeMs = Date.now() - this.trialStartTime;
     const condition = this.trialConditions[this.currentTrial];
-    this.results.push({ response, reactionTimeMs, condition });
-    this.currentTrial++;
 
-    // Hide dots and show brief feedback
-    this.setDotsOpacity(0);
-    this.showFeedback(response, condition);
+    if (response === 'fusion') {
+      // Enter offset measurement phase — dots stay visible
+      this.pendingResult = { response, reactionTimeMs, condition };
+      this.enterOffsetPhase(condition);
+    } else {
+      this.results.push({ response, reactionTimeMs, condition });
+      this.currentTrial++;
+      this.setDotsOpacity(0);
+      this.showFeedback(response, condition);
+    }
   }
 
-  private showFeedback(response: SuppressionResult, condition: TrialCondition): void {
+  // --- Vergence Offset Measurement ---
+
+  private enterOffsetPhase(condition: TrialCondition): void {
+    this.offsetPhase = true;
+    this.crosshairOffsetX = 0;
+    this.crosshairOffsetY = 0;
+
+    // Position crosshair at red dot's location (zero offset = perfect alignment)
+    if (this.crosshairGroup && this.redDot) {
+      this.crosshairGroup.position.copy(this.redDot.position);
+      this.crosshairGroup.visible = true;
+      const scale = Math.abs(condition.distance) / REF_DISTANCE;
+      this.crosshairGroup.scale.set(scale, scale, 1);
+    }
+
+    this.renderOffsetInstructions();
+  }
+
+  private confirmOffset(): void {
+    this.offsetPhase = false;
+    if (this.crosshairGroup) this.crosshairGroup.visible = false;
+
+    const result = this.pendingResult!;
+    result.vergenceOffset = { x: this.crosshairOffsetX, y: this.crosshairOffsetY };
+    this.results.push(result);
+    this.currentTrial++;
+    this.pendingResult = null;
+
+    this.setDotsOpacity(0);
+
+    const offsetMm = Math.round(
+      Math.sqrt(
+        this.crosshairOffsetX * this.crosshairOffsetX +
+        this.crosshairOffsetY * this.crosshairOffsetY,
+      ) * 1000,
+    );
+    this.showFeedback(result.response, result.condition, offsetMm);
+  }
+
+  private renderOffsetInstructions(): void {
+    const tex = this.textRenderer.renderToTexture({
+      text: 'Move + to where you see the red dot\nStick to move  •  Trigger to confirm',
+      width: 1024,
+      height: 140,
+      fontSize: 30,
+      lineHeight: 1.6,
+      color: '#dbb870',
+      background: 'rgba(0,0,0,0)',
+      align: 'center',
+      paddingX: 30,
+      paddingY: 16,
+    });
+
+    this.instructionMaterial!.map = tex;
+    this.instructionMaterial!.needsUpdate = true;
+  }
+
+  // --- Feedback ---
+
+  private showFeedback(
+    response: SuppressionResult,
+    condition: TrialCondition,
+    offsetMm?: number,
+  ): void {
     const labels: Record<SuppressionResult, string> = {
       fusion: '4 dots — Fusion',
       'fellow-suppressed': '2 dots — Fellow eye suppressed',
@@ -532,11 +673,16 @@ export class SuppressionCheckExercise extends BaseExercise {
     };
 
     const distLabel = condition.distanceLabel.charAt(0).toUpperCase() + condition.distanceLabel.slice(1);
+    let text = `${distLabel}: ${labels[response]}`;
+    if (offsetMm !== undefined) {
+      text += `  (${offsetMm}mm offset)`;
+    }
+
     const tex = this.textRenderer.renderToTexture({
-      text: `${distLabel}: ${labels[response]}`,
-      width: 768,
+      text,
+      width: 900,
       height: 80,
-      fontSize: 36,
+      fontSize: 34,
       lineHeight: 1.0,
       color: colors[response],
       background: 'rgba(0,0,0,0)',
@@ -570,16 +716,22 @@ export class SuppressionCheckExercise extends BaseExercise {
       `Fellow suppressed: ${stats.fellowSuppressionRate}%`,
       `Diplopia: ${stats.diplopiaRate}%`,
       `Avg reaction: ${stats.avgReactionTimeMs}ms`,
-      '',
-      'Grip to exit',
     ];
+
+    if ((stats.vergenceOffsetCount as number) > 0) {
+      lines.push('');
+      lines.push(`Avg vergence offset: ${stats.avgVergenceOffsetMm}mm`);
+      lines.push(`  (${stats.vergenceOffsetCount} measurements)`);
+    }
+
+    lines.push('', 'Grip to exit');
 
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 780,
-      fontSize: 34,
-      lineHeight: 1.45,
+      height: 880,
+      fontSize: 32,
+      lineHeight: 1.4,
       color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 60,
@@ -592,7 +744,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 1.0);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 1.1);
     this.instructionMesh!.position.set(0, DOT_Y - 0.55, -1.7);
 
     this.feedbackMesh!.visible = false;

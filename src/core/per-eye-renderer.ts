@@ -28,6 +28,7 @@ export class PerEyeRenderer {
   private trainingEye: EyeSide = 'right';
   private frameCallback: FrameCallback | null = null;
   private headYDetected: boolean = false;
+  private controllerGrips: THREE.Group[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -113,6 +114,18 @@ export class PerEyeRenderer {
     return this.contentGroup.worldToLocal(pos.clone());
   }
 
+  /**
+   * Get a controller's grip position in world space.
+   * Returns null if the controller is not tracked.
+   */
+  getControllerPosition(index: number): THREE.Vector3 | null {
+    if (index >= this.controllerGrips.length) return null;
+    const pos = new THREE.Vector3();
+    this.controllerGrips[index].getWorldPosition(pos);
+    if (pos.lengthSq() < 0.001) return null;
+    return pos;
+  }
+
   onFrame(callback: FrameCallback): void {
     this.frameCallback = callback;
   }
@@ -122,6 +135,13 @@ export class PerEyeRenderer {
    */
   async startSession(session: XRSession): Promise<void> {
     await this.renderer.xr.setSession(session);
+
+    // Track controller grips for exercises that need hand positions
+    for (let i = 0; i < 2; i++) {
+      const grip = this.renderer.xr.getControllerGrip(i);
+      this.scene.add(grip);
+      this.controllerGrips.push(grip);
+    }
 
     this.renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
       // Configure per-eye camera layers before Three.js renders
@@ -152,6 +172,8 @@ export class PerEyeRenderer {
     this.renderer.setAnimationLoop(null);
     this.headYDetected = false;
     this.contentGroup.position.y = 0;
+    for (const grip of this.controllerGrips) this.scene.remove(grip);
+    this.controllerGrips = [];
   }
 
   private configureCameraLayers(): void {

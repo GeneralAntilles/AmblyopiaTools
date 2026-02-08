@@ -2,11 +2,15 @@
  * Virtual Brock String Exercise
  *
  * VR implementation of the classic Brock string convergence exercise.
- * A string stretches from near the user toward the distance with 3 colored
- * beads (green=near, yellow=mid, red=far). The user focuses on each
- * highlighted bead in turn, and when converged correctly the string
- * naturally appears as an X pattern through the bead (due to binocular
- * parallax in VR).
+ * A string stretches from the user's controller (held near the nose,
+ * like the real exercise) toward the distance with 3 colored beads.
+ * The user focuses on each highlighted bead in turn, and when converged
+ * correctly the string naturally appears as an X pattern through the
+ * bead (due to binocular parallax in VR).
+ *
+ * Controller-attached mode: the string's near end tracks whichever
+ * controller the user moves toward the golden guide ring. Beads
+ * maintain their proportional positions along the dynamic string.
  *
  * Trains:
  *   - Eye convergence (especially for near beads — hardest for amblyopes)
@@ -39,7 +43,6 @@ interface BeadResult {
 }
 
 // Bead positions — near is harder (more convergence needed)
-// Keep nearest bead at Z=-0.8 to avoid extreme vergence-accommodation conflict
 const BEADS: BeadDef[] = [
   { color: 0xc95a5a, z: -2.5, label: 'Far (red)' },
   { color: 0xc9a85a, z: -1.5, label: 'Middle (yellow)' },
@@ -50,7 +53,7 @@ const STRING_Y = 1.5;
 const STRING_START_Z = -0.4;
 const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
-const SEQUENCES = 3; // Number of full bead sequences
+const SEQUENCES = 3;
 const PANEL_BG = '#16111e';
 
 export class BrockStringExercise extends BaseExercise {
@@ -92,14 +95,26 @@ export class BrockStringExercise extends BaseExercise {
   private completed: boolean = false;
   private pulseTime: number = 0;
   private waitingForStart: boolean = false;
-  private targetBeadZ: number = 0;
   private highlightTransitioning: boolean = false;
+
+  // Controller-attached mode
+  private controllerAttached: boolean = false;
+  private controllerIndex: number = -1;
+  private stringNearEnd: THREE.Vector3 = new THREE.Vector3(0, STRING_Y, STRING_START_Z);
+  private readonly stringFarEnd: THREE.Vector3 = new THREE.Vector3(0, STRING_Y, STRING_END_Z);
+  private beadProportions: number[] = [];
 
   private exitCallback: (() => void) | null = null;
 
   constructor() {
     super();
     this.textRenderer = new TextRenderer();
+
+    // Pre-compute proportional bead positions along the string
+    const totalLength = Math.abs(STRING_END_Z - STRING_START_Z);
+    for (const bead of BEADS) {
+      this.beadProportions.push(Math.abs(bead.z - STRING_START_Z) / totalLength);
+    }
   }
 
   setExitCallback(cb: () => void): void {
@@ -112,6 +127,9 @@ export class BrockStringExercise extends BaseExercise {
     this.results = [];
     this.currentSequence = 0;
     this.currentBeadIndex = 0;
+    this.controllerAttached = false;
+    this.controllerIndex = -1;
+    this.stringNearEnd.set(0, STRING_Y, STRING_START_Z);
 
     this.createEnvironment();
     this.createString();
@@ -121,7 +139,7 @@ export class BrockStringExercise extends BaseExercise {
     this.createGuide();
 
     this.waitingForStart = true;
-    this.showNosePrompt();
+    this.showControllerPrompt();
 
     this.unsubInput = this.input.onAction((action) => {
       if (this.completed) {
@@ -130,6 +148,8 @@ export class BrockStringExercise extends BaseExercise {
       }
 
       if (this.waitingForStart && action === 'select') {
+        // Trigger fallback: attach to nearest controller and start
+        this.attachNearestController();
         this.waitingForStart = false;
         if (this.guideMesh) this.guideMesh.visible = false;
         for (const a of this.arrowMeshes) a.visible = false;
@@ -159,24 +179,55 @@ export class BrockStringExercise extends BaseExercise {
   update(dt: number): void {
     this.pulseTime += dt;
 
-    // Proximity-based auto-start with arrow guide
+    // Controller-attached string tracking
+    if (this.controllerAttached && this.renderer) {
+      const pos = this.renderer.getControllerPosition(this.controllerIndex);
+      if (pos) {
+        const localPos = this.renderer.worldToContentLocal(pos);
+        this.stringNearEnd.copy(localPos);
+        this.orientStringBetween(localPos, this.stringFarEnd);
+        this.repositionBeads(localPos, this.stringFarEnd);
+
+        // Keep highlight ring on current bead
+        if (this.highlightRing?.visible && !this.highlightTransitioning) {
+          this.highlightRing.position.copy(this.beadMeshes[this.currentBeadIndex].position);
+        }
+      }
+    }
+
+    // Guide phase: detect controller proximity
     if (this.waitingForStart && this.guideMesh && this.renderer) {
-      const headPos = this.renderer.getHeadPosition();
       const guideWorldPos = new THREE.Vector3();
       this.guideMesh.getWorldPosition(guideWorldPos);
 
-      const dist = headPos.distanceTo(guideWorldPos);
+      // Find closest controller
+      let closestDist = Infinity;
+      let closestIndex = -1;
+      let closestPos: THREE.Vector3 | null = null;
 
-      if (dist < 0.2) {
-        // Close enough — auto-start
-        this.guideMaterial!.color.set(0x5ac97a);
+      for (let i = 0; i < 2; i++) {
+        const pos = this.renderer.getControllerPosition(i);
+        if (pos) {
+          const dist = pos.distanceTo(guideWorldPos);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestIndex = i;
+            closestPos = pos;
+          }
+        }
+      }
+
+      if (closestPos && closestDist < 0.15) {
+        // Close enough — attach controller and auto-start
+        this.controllerAttached = true;
+        this.controllerIndex = closestIndex;
         this.waitingForStart = false;
         this.guideMesh.visible = false;
         for (const a of this.arrowMeshes) a.visible = false;
         this.startTrial();
-      } else {
+      } else if (closestPos) {
         // Color guide by proximity
-        const t = Math.max(0, Math.min(1, 1 - (dist - 0.2) / 0.6));
+        const t = Math.max(0, Math.min(1, 1 - (closestDist - 0.15) / 0.6));
         if (t > 0.6) {
           this.guideMaterial!.color.set(0x5ac97a);
         } else if (t > 0.3) {
@@ -189,13 +240,12 @@ export class BrockStringExercise extends BaseExercise {
         const guidePulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
         this.guideMaterial!.opacity = guidePulse;
 
-        // Position arrow chevrons between head and guide
+        // Position chevron waypoints between controller and guide
         for (let i = 0; i < this.arrowMeshes.length; i++) {
           const frac = 0.3 + i * 0.2;
-          const worldPos = new THREE.Vector3().lerpVectors(headPos, guideWorldPos, frac);
+          const worldPos = new THREE.Vector3().lerpVectors(closestPos, guideWorldPos, frac);
           const localPos = this.renderer.worldToContentLocal(worldPos);
           this.arrowMeshes[i].position.copy(localPos);
-          this.arrowMeshes[i].lookAt(guideWorldPos);
 
           // Sequential wave animation
           const phase = this.pulseTime * 4 - i * 1.2;
@@ -205,15 +255,13 @@ export class BrockStringExercise extends BaseExercise {
       }
     }
 
-    // Smooth highlight ring transition
+    // Smooth highlight ring transition to new bead
     if (this.highlightTransitioning && this.highlightRing) {
-      const currentZ = this.highlightRing.position.z;
-      const newZ = THREE.MathUtils.lerp(currentZ, this.targetBeadZ, Math.min(1, 5.0 * dt));
+      const targetPos = this.beadMeshes[this.currentBeadIndex].position;
+      this.highlightRing.position.lerp(targetPos, Math.min(1, 5.0 * dt));
 
-      this.highlightRing.position.z = newZ;
-
-      if (Math.abs(newZ - this.targetBeadZ) < 0.01) {
-        this.highlightRing.position.z = this.targetBeadZ;
+      if (this.highlightRing.position.distanceTo(targetPos) < 0.01) {
+        this.highlightRing.position.copy(targetPos);
         this.highlightTransitioning = false;
         this.trialStartTime = Date.now();
         this.awaitingResponse = true;
@@ -331,14 +379,28 @@ export class BrockStringExercise extends BaseExercise {
   private createString(): void {
     if (!this.renderer) return;
 
-    // Thin cylinder for the string
-    const length = Math.abs(STRING_END_Z - STRING_START_Z);
-    const geo = new THREE.CylinderGeometry(0.002, 0.002, length, 8);
-    geo.rotateX(Math.PI / 2); // Align along Z axis
+    // Unit-height cylinder — oriented dynamically via quaternion
+    const geo = new THREE.CylinderGeometry(0.002, 0.002, 1, 8);
     this.stringMaterial = new THREE.MeshBasicMaterial({ color: 0xddd0c0 });
     this.stringMesh = new THREE.Mesh(geo, this.stringMaterial);
-    this.stringMesh.position.set(0, STRING_Y, (STRING_START_Z + STRING_END_Z) / 2);
+    this.orientStringBetween(this.stringNearEnd, this.stringFarEnd);
     this.renderer.addToBothEyes(this.stringMesh);
+  }
+
+  private orientStringBetween(near: THREE.Vector3, far: THREE.Vector3): void {
+    if (!this.stringMesh) return;
+
+    const dir = new THREE.Vector3().subVectors(far, near);
+    const length = dir.length();
+    dir.normalize();
+
+    const mid = new THREE.Vector3().lerpVectors(near, far, 0.5);
+    this.stringMesh.position.copy(mid);
+
+    // Orient cylinder's Y axis along the direction vector
+    const up = new THREE.Vector3(0, 1, 0);
+    this.stringMesh.quaternion.setFromUnitVectors(up, dir);
+    this.stringMesh.scale.set(1, length, 1);
   }
 
   private createBeads(): void {
@@ -353,6 +415,13 @@ export class BrockStringExercise extends BaseExercise {
       this.renderer.addToBothEyes(mesh);
       this.beadMeshes.push(mesh);
       this.beadMaterials.push(mat);
+    }
+  }
+
+  private repositionBeads(near: THREE.Vector3, far: THREE.Vector3): void {
+    for (let i = 0; i < BEADS.length; i++) {
+      const pos = new THREE.Vector3().lerpVectors(near, far, this.beadProportions[i]);
+      this.beadMeshes[i].position.copy(pos);
     }
   }
 
@@ -375,7 +444,6 @@ export class BrockStringExercise extends BaseExercise {
   private createUI(): void {
     if (!this.renderer) return;
 
-    // Instructions
     const instructGeo = new THREE.PlaneGeometry(1.4, 0.18);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -386,7 +454,6 @@ export class BrockStringExercise extends BaseExercise {
     this.instructionMesh.position.set(0, STRING_Y - 0.35, -2.0);
     this.renderer.addToBothEyes(this.instructionMesh);
 
-    // Feedback
     const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
@@ -413,9 +480,17 @@ export class BrockStringExercise extends BaseExercise {
     this.guideMesh.position.set(0, STRING_Y, STRING_START_Z);
     this.renderer.addToBothEyes(this.guideMesh);
 
-    // Arrow chevrons pointing toward guide
-    const arrowGeo = new THREE.ConeGeometry(0.015, 0.05, 4);
-    arrowGeo.rotateX(-Math.PI / 2); // Tip points along -Z (forward for lookAt)
+    // Flat chevron ">" waypoint markers
+    const cs = 0.03;
+    const chevronShape = new THREE.Shape();
+    chevronShape.moveTo(-cs * 0.4, cs);
+    chevronShape.lineTo(cs * 0.5, 0);
+    chevronShape.lineTo(-cs * 0.4, -cs);
+    chevronShape.lineTo(-cs * 0.05, -cs * 0.45);
+    chevronShape.lineTo(cs * 0.12, 0);
+    chevronShape.lineTo(-cs * 0.05, cs * 0.45);
+    chevronShape.closePath();
+    const chevronGeo = new THREE.ShapeGeometry(chevronShape);
 
     for (let i = 0; i < 3; i++) {
       const mat = new THREE.MeshBasicMaterial({
@@ -423,8 +498,9 @@ export class BrockStringExercise extends BaseExercise {
         transparent: true,
         opacity: 0.6,
         depthWrite: false,
+        side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(arrowGeo.clone(), mat);
+      const mesh = new THREE.Mesh(chevronGeo.clone(), mat);
       mesh.position.set(0, STRING_Y, STRING_START_Z + 0.15 + i * 0.12);
       this.renderer!.addToBothEyes(mesh);
       this.arrowMeshes.push(mesh);
@@ -432,12 +508,28 @@ export class BrockStringExercise extends BaseExercise {
     }
   }
 
+  // --- Controller Attachment ---
+
+  private attachNearestController(): void {
+    if (!this.renderer) return;
+
+    for (let i = 0; i < 2; i++) {
+      const pos = this.renderer.getControllerPosition(i);
+      if (pos) {
+        this.controllerAttached = true;
+        this.controllerIndex = i;
+        return;
+      }
+    }
+    // No controller tracked — fall back to static string
+    this.controllerAttached = false;
+  }
+
   // --- Trial Logic ---
 
   private startTrial(): void {
     const bead = BEADS[this.currentBeadIndex];
 
-    this.targetBeadZ = bead.z;
     this.highlightMaterial!.color.set(bead.color);
     this.highlightRing!.visible = true;
     this.highlightTransitioning = true;
@@ -541,9 +633,9 @@ export class BrockStringExercise extends BaseExercise {
     this.instructionMesh!.position.set(0, STRING_Y - 0.45, -2.0);
   }
 
-  private showNosePrompt(): void {
+  private showControllerPrompt(): void {
     const tex = this.textRenderer.renderToTexture({
-      text: 'Move toward the golden ring\nExercise starts when you\'re in position',
+      text: 'Hold your controller to the golden ring\nLike holding the string to your nose',
       width: 1024,
       height: 130,
       fontSize: 30,
