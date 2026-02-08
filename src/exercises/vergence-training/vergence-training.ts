@@ -43,7 +43,7 @@ const STEP_UP = 0.006; // Increase disparity after fusion
 const STEP_DOWN = 0.008; // Decrease disparity after failure (larger to stay in range)
 const MIN_DISPARITY = 0.002;
 const MAX_DISPARITY = 0.12;
-const PANEL_BG = '#111119';
+const PANEL_BG = '#16111e';
 
 export class VergenceTrainingExercise extends BaseExercise {
   readonly name = 'Vergence Training';
@@ -246,10 +246,10 @@ export class VergenceTrainingExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c');
-    gradient.addColorStop(0.35, '#0a0a14');
-    gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408');
+    gradient.addColorStop(0.0, '#1a0f20');
+    gradient.addColorStop(0.35, '#160c1a');
+    gradient.addColorStop(0.7, '#0f0812');
+    gradient.addColorStop(1.0, '#0a060c');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -264,11 +264,11 @@ export class VergenceTrainingExercise extends BaseExercise {
     if (!this.renderer) return;
 
     // Training eye: ring with a cross inside
-    this.buildRingWithSymbol(this.trainingRingGroup, 'cross', 0x6688cc);
+    this.buildRingWithSymbol(this.trainingRingGroup, 'cross', 0xc9935a);
     this.renderer.addToTrainingEye(this.trainingRingGroup);
 
     // Non-training eye: ring with a dot inside
-    this.buildRingWithSymbol(this.nonTrainingRingGroup, 'dot', 0x88cc66);
+    this.buildRingWithSymbol(this.nonTrainingRingGroup, 'dot', 0x5a9ac9);
     this.renderer.addToNonTrainingEye(this.nonTrainingRingGroup);
   }
 
@@ -389,7 +389,7 @@ export class VergenceTrainingExercise extends BaseExercise {
   private showFeedbackText(fused: boolean, direction: VergenceDirection): void {
     const dirLabel = direction === 'convergence' ? 'Conv' : 'Div';
     const text = fused ? `${dirLabel}: Fused` : `${dirLabel}: Double`;
-    const color = fused ? '#44aa66' : '#aa6644';
+    const color = fused ? '#5cb87a' : '#c47a5c';
 
     const tex = this.textRenderer.renderToTexture({
       text,
@@ -437,12 +437,12 @@ export class VergenceTrainingExercise extends BaseExercise {
       height: 640,
       fontSize: 36,
       lineHeight: 1.5,
-      color: '#d4d4dc',
+      color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 60,
       paddingY: 50,
       borderRadius: 32,
-      borderColor: '#2a2a40',
+      borderColor: '#362a40',
       borderWidth: 3,
     });
 
@@ -473,7 +473,7 @@ export class VergenceTrainingExercise extends BaseExercise {
       height: 130,
       fontSize: 30,
       lineHeight: 1.5,
-      color: '#8888aa',
+      color: '#9688a0',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

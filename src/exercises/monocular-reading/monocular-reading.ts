@@ -58,15 +58,15 @@ const PANEL_W = 1.7;
 const PANEL_H = 1.5;
 const PANEL_Y = 1.4;
 const PANEL_Z = -2.0;
-const PANEL_BG = '#111119';
-const PANEL_BORDER = '#2a2a40';
+const PANEL_BG = '#16111e';
+const PANEL_BORDER = '#362a40';
 const PANEL_BORDER_W = 4;
 const PANEL_RADIUS = 48;
-const TEXT_COLOR = '#d4d4dc';
+const TEXT_COLOR = '#e0d6cc';
 
 // Parsed RGB values for color interpolation
-const BG_RGB = { r: 0x11, g: 0x11, b: 0x19 };
-const FG_RGB = { r: 0xd4, g: 0xd4, b: 0xdc };
+const BG_RGB = { r: 0x16, g: 0x11, b: 0x1e };
+const FG_RGB = { r: 0xe0, g: 0xd6, b: 0xcc };
 
 export class MonocularReadingExercise extends BaseExercise {
   readonly name = 'Monocular Reading';
@@ -313,10 +313,10 @@ export class MonocularReadingExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c');
-    gradient.addColorStop(0.35, '#0a0a14');
-    gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408');
+    gradient.addColorStop(0.0, '#1a0f20');
+    gradient.addColorStop(0.35, '#160c1a');
+    gradient.addColorStop(0.7, '#0f0812');
+    gradient.addColorStop(1.0, '#0a060c');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -338,8 +338,8 @@ export class MonocularReadingExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createRadialGradient(256, 256, 0, 256, 256, 256);
-    gradient.addColorStop(0, 'rgba(30, 45, 90, 0.12)');
-    gradient.addColorStop(0.5, 'rgba(15, 25, 50, 0.05)');
+    gradient.addColorStop(0, 'rgba(60, 40, 25, 0.15)');
+    gradient.addColorStop(0.5, 'rgba(35, 22, 12, 0.07)');
     gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 512, 512);
@@ -543,11 +543,11 @@ export class MonocularReadingExercise extends BaseExercise {
     canvas.height = h;
     const ctx = canvas.getContext('2d')!;
 
-    ctx.fillStyle = '#1a1a2c';
+    ctx.fillStyle = '#221a2c';
     this.roundRectFill(ctx, 0, 2, w, h - 4, (h - 4) / 2);
 
     const fillW = Math.max(h - 4, w * progress);
-    ctx.fillStyle = '#3060a0';
+    ctx.fillStyle = '#7a5a30';
     this.roundRectFill(ctx, 0, 2, fillW, h - 4, (h - 4) / 2);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -575,7 +575,7 @@ export class MonocularReadingExercise extends BaseExercise {
       height: 48,
       fontSize: 20,
       lineHeight: 1.0,
-      color: '#5a5a70',
+      color: '#6a5a70',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 10,

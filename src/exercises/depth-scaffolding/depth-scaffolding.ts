@@ -46,7 +46,7 @@ const BASE_Z = -2.0;
 const OBJECT_RADIUS = 0.06;
 
 // Object colors
-const COLORS = [0x4488cc, 0x44aa66, 0xcc8844]; // Blue, Green, Orange
+const COLORS = [0xc9935a, 0x5ac98a, 0xc95a8a]; // Amber, Emerald, Rose
 
 // Staircase parameters
 const INITIAL_DEPTH_RANGE = 0.20;    // Starting depth offset in meters
@@ -58,7 +58,7 @@ const STEP_UP_FACTOR = 1.4;          // Multiply depth by this after 1 incorrect
 const CORRECT_STREAK_TO_STEP = 3;    // 3-up staircase
 const CORRECT_TO_ADVANCE_LEVEL = 4;  // Advance cue level after this many correct
 
-const PANEL_BG = '#111119';
+const PANEL_BG = '#16111e';
 
 // Cue level names
 const CUE_LEVEL_NAMES = [
@@ -340,10 +340,10 @@ export class DepthScaffoldingExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c');
-    gradient.addColorStop(0.35, '#0a0a14');
-    gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408');
+    gradient.addColorStop(0.0, '#1a0f20');
+    gradient.addColorStop(0.35, '#160c1a');
+    gradient.addColorStop(0.7, '#0f0812');
+    gradient.addColorStop(1.0, '#0a060c');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -376,7 +376,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     const ringGeo = new THREE.RingGeometry(OBJECT_RADIUS * 1.6, OBJECT_RADIUS * 2.0, 32);
     this.selectorMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0xdbb870,
       transparent: true,
       opacity: 0.5,
       side: THREE.DoubleSide,
@@ -605,7 +605,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   private showFeedbackText(correct: boolean): void {
     const text = correct ? 'Correct' : 'Incorrect';
-    const color = correct ? '#44aa66' : '#aa4444';
+    const color = correct ? '#5cb87a' : '#c45c5c';
 
     const tex = this.textRenderer.renderToTexture({
       text,
@@ -646,12 +646,12 @@ export class DepthScaffoldingExercise extends BaseExercise {
       height: 230,
       fontSize: 36,
       lineHeight: 1.6,
-      color: '#d4d4dc',
+      color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 40,
       paddingY: 40,
       borderRadius: 24,
-      borderColor: '#2a2a40',
+      borderColor: '#362a40',
       borderWidth: 3,
       align: 'center',
     });
@@ -695,12 +695,12 @@ export class DepthScaffoldingExercise extends BaseExercise {
       height: 576,
       fontSize: 34,
       lineHeight: 1.5,
-      color: '#d4d4dc',
+      color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 60,
       paddingY: 50,
       borderRadius: 32,
-      borderColor: '#2a2a40',
+      borderColor: '#362a40',
       borderWidth: 3,
     });
 
@@ -729,7 +729,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
       height: 140,
       fontSize: 30,
       lineHeight: 1.6,
-      color: '#8888aa',
+      color: '#9688a0',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

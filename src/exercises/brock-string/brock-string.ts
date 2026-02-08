@@ -41,9 +41,9 @@ interface BeadResult {
 // Bead positions — near is harder (more convergence needed)
 // Keep nearest bead at Z=-0.8 to avoid extreme vergence-accommodation conflict
 const BEADS: BeadDef[] = [
-  { color: 0xff4444, z: -2.5, label: 'Far (red)' },
-  { color: 0xddbb33, z: -1.5, label: 'Middle (yellow)' },
-  { color: 0x44cc66, z: -0.8, label: 'Near (green)' },
+  { color: 0xc95a5a, z: -2.5, label: 'Far (red)' },
+  { color: 0xc9a85a, z: -1.5, label: 'Middle (yellow)' },
+  { color: 0x5ac97a, z: -0.8, label: 'Near (green)' },
 ];
 
 const STRING_Y = 1.5;
@@ -51,7 +51,7 @@ const STRING_START_Z = -0.4;
 const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
 const SEQUENCES = 3; // Number of full bead sequences
-const PANEL_BG = '#111119';
+const PANEL_BG = '#16111e';
 
 export class BrockStringExercise extends BaseExercise {
   readonly name = 'Brock String';
@@ -76,6 +76,8 @@ export class BrockStringExercise extends BaseExercise {
   private instructionMaterial: THREE.MeshBasicMaterial | null = null;
   private feedbackMesh: THREE.Mesh | null = null;
   private feedbackMaterial: THREE.MeshBasicMaterial | null = null;
+  private guideMesh: THREE.Mesh | null = null;
+  private guideMaterial: THREE.MeshBasicMaterial | null = null;
 
   // Exercise state
   private currentSequence: number = 0;
@@ -114,6 +116,7 @@ export class BrockStringExercise extends BaseExercise {
     this.createBeads();
     this.createHighlightRing();
     this.createUI();
+    this.createGuide();
 
     this.waitingForStart = true;
     this.showNosePrompt();
@@ -126,6 +129,7 @@ export class BrockStringExercise extends BaseExercise {
 
       if (this.waitingForStart && action === 'select') {
         this.waitingForStart = false;
+        if (this.guideMesh) this.guideMesh.visible = false;
         this.startTrial();
         return;
       }
@@ -151,6 +155,12 @@ export class BrockStringExercise extends BaseExercise {
 
   update(dt: number): void {
     this.pulseTime += dt;
+
+    // Pulse nose guide
+    if (this.waitingForStart && this.guideMesh) {
+      const pulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
+      this.guideMaterial!.opacity = pulse;
+    }
 
     // Smooth highlight ring transition
     if (this.highlightTransitioning && this.highlightRing) {
@@ -192,6 +202,7 @@ export class BrockStringExercise extends BaseExercise {
       if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
       if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
+      if (this.guideMesh) this.renderer.removeFromScene(this.guideMesh);
     }
 
     this.stringMesh?.geometry.dispose();
@@ -209,6 +220,8 @@ export class BrockStringExercise extends BaseExercise {
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
     this.feedbackMaterial?.dispose();
+    this.guideMesh?.geometry.dispose();
+    this.guideMaterial?.dispose();
 
     this.renderer = null;
     this.input = null;
@@ -253,10 +266,10 @@ export class BrockStringExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c');
-    gradient.addColorStop(0.35, '#0a0a14');
-    gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408');
+    gradient.addColorStop(0.0, '#1a0f20');
+    gradient.addColorStop(0.35, '#160c1a');
+    gradient.addColorStop(0.7, '#0f0812');
+    gradient.addColorStop(1.0, '#0a060c');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -274,7 +287,7 @@ export class BrockStringExercise extends BaseExercise {
     const length = Math.abs(STRING_END_Z - STRING_START_Z);
     const geo = new THREE.CylinderGeometry(0.002, 0.002, length, 8);
     geo.rotateX(Math.PI / 2); // Align along Z axis
-    this.stringMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
+    this.stringMaterial = new THREE.MeshBasicMaterial({ color: 0xddd0c0 });
     this.stringMesh = new THREE.Mesh(geo, this.stringMaterial);
     this.stringMesh.position.set(0, STRING_Y, (STRING_START_Z + STRING_END_Z) / 2);
     this.renderer.addToBothEyes(this.stringMesh);
@@ -300,13 +313,14 @@ export class BrockStringExercise extends BaseExercise {
 
     const ringGeo = new THREE.RingGeometry(BEAD_RADIUS * 1.8, BEAD_RADIUS * 2.4, 32);
     this.highlightMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0xdbb870,
       transparent: true,
       opacity: 0.6,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
     this.highlightRing = new THREE.Mesh(ringGeo, this.highlightMaterial);
+    this.highlightRing.position.set(0, STRING_Y, BEADS[0].z);
     this.renderer.addToBothEyes(this.highlightRing);
   }
 
@@ -335,6 +349,21 @@ export class BrockStringExercise extends BaseExercise {
     this.feedbackMesh.position.set(0, STRING_Y + 0.35, -2.0);
     this.feedbackMesh.visible = false;
     this.renderer.addToBothEyes(this.feedbackMesh);
+  }
+
+  private createGuide(): void {
+    if (!this.renderer) return;
+
+    const guideGeo = new THREE.TorusGeometry(0.05, 0.008, 12, 32);
+    this.guideMaterial = new THREE.MeshBasicMaterial({
+      color: 0xdbb870,
+      transparent: true,
+      opacity: 0.7,
+      side: THREE.DoubleSide,
+    });
+    this.guideMesh = new THREE.Mesh(guideGeo, this.guideMaterial);
+    this.guideMesh.position.set(0, STRING_Y, STRING_START_Z);
+    this.renderer.addToBothEyes(this.guideMesh);
   }
 
   // --- Trial Logic ---
@@ -369,7 +398,7 @@ export class BrockStringExercise extends BaseExercise {
 
   private showFeedbackText(fused: boolean): void {
     const text = fused ? 'Fused' : 'Double';
-    const color = fused ? '#44aa66' : '#aa6644';
+    const color = fused ? '#5cb87a' : '#c47a5c';
 
     const tex = this.textRenderer.renderToTexture({
       text,
@@ -430,12 +459,12 @@ export class BrockStringExercise extends BaseExercise {
       height: 576,
       fontSize: 36,
       lineHeight: 1.5,
-      color: '#d4d4dc',
+      color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 60,
       paddingY: 50,
       borderRadius: 32,
-      borderColor: '#2a2a40',
+      borderColor: '#362a40',
       borderWidth: 3,
     });
 
@@ -448,12 +477,12 @@ export class BrockStringExercise extends BaseExercise {
 
   private showNosePrompt(): void {
     const tex = this.textRenderer.renderToTexture({
-      text: 'Position yourself so the string starts at your nose\nTrigger to begin',
+      text: 'Align the golden ring in front of your nose\nTrigger to begin',
       width: 1024,
       height: 130,
       fontSize: 30,
       lineHeight: 1.6,
-      color: '#bbbbcc',
+      color: '#c0b8a8',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,
@@ -478,7 +507,7 @@ export class BrockStringExercise extends BaseExercise {
       height: 130,
       fontSize: 30,
       lineHeight: 1.5,
-      color: '#8888aa',
+      color: '#9688a0',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

@@ -40,10 +40,10 @@ const DOT_Y = 1.5;
 const DOT_Z = -1.8;
 
 // Colors
-const RED = 0xdd3333;
-const GREEN = 0x33bb55;
-const WHITE = 0xeeeeee;
-const PANEL_BG = '#111119';
+const RED = 0xdd4444;
+const GREEN = 0x44bb66;
+const WHITE = 0xeeeedd;
+const PANEL_BG = '#16111e';
 
 export class SuppressionCheckExercise extends BaseExercise {
   readonly name = 'Suppression Check';
@@ -229,10 +229,10 @@ export class SuppressionCheckExercise extends BaseExercise {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c');
-    gradient.addColorStop(0.35, '#0a0a14');
-    gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408');
+    gradient.addColorStop(0.0, '#1a0f20');
+    gradient.addColorStop(0.35, '#160c1a');
+    gradient.addColorStop(0.7, '#0f0812');
+    gradient.addColorStop(1.0, '#0a060c');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -310,10 +310,10 @@ export class SuppressionCheckExercise extends BaseExercise {
     };
 
     const colors: Record<SuppressionResult, string> = {
-      fusion: '#44aa66',
-      'fellow-suppressed': '#aa8844',
-      'training-suppressed': '#aa8844',
-      diplopia: '#aa6644',
+      fusion: '#5cb87a',
+      'fellow-suppressed': '#c49a5c',
+      'training-suppressed': '#c49a5c',
+      diplopia: '#c47a5c',
     };
 
     const tex = this.textRenderer.renderToTexture({
@@ -358,12 +358,12 @@ export class SuppressionCheckExercise extends BaseExercise {
       height: 576,
       fontSize: 38,
       lineHeight: 1.5,
-      color: '#d4d4dc',
+      color: '#e0d6cc',
       background: PANEL_BG,
       paddingX: 60,
       paddingY: 50,
       borderRadius: 32,
-      borderColor: '#2a2a40',
+      borderColor: '#362a40',
       borderWidth: 3,
     });
 
@@ -396,7 +396,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       height: 180,
       fontSize: 32,
       lineHeight: 1.5,
-      color: '#8888aa',
+      color: '#9688a0',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,
