@@ -80,9 +80,6 @@ const PANEL_BG = '#16111e';
 const INTER_TRIAL_MS = 800;
 const FADE_IN_MS = 300;
 
-// Crosshair movement
-const CROSSHAIR_SPEED = 0.25; // m/s at reference distance
-
 export class SuppressionCheckExercise extends BaseExercise {
   readonly name = 'Suppression Check';
   readonly description = 'Worth 4-dot test to detect binocular suppression.';
@@ -112,6 +109,8 @@ export class SuppressionCheckExercise extends BaseExercise {
   private instructionMaterial: THREE.MeshBasicMaterial | null = null;
   private feedbackMesh: THREE.Mesh | null = null;
   private feedbackMaterial: THREE.MeshBasicMaterial | null = null;
+  private scatterMesh: THREE.Mesh | null = null;
+  private scatterMaterial: THREE.MeshBasicMaterial | null = null;
 
   // Trial state
   private results: TrialResult[] = [];
@@ -182,6 +181,17 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.feedbackMesh.visible = false;
     this.renderer.addToBothEyes(this.feedbackMesh);
 
+    // Scatter plot panel (both eyes, shown during results)
+    const scatterGeo = new THREE.PlaneGeometry(0.8, 0.8);
+    this.scatterMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.scatterMesh = new THREE.Mesh(scatterGeo, this.scatterMaterial);
+    this.scatterMesh.visible = false;
+    this.renderer.addToBothEyes(this.scatterMesh);
+
     this.renderInstructions();
 
     // Input
@@ -230,20 +240,44 @@ export class SuppressionCheckExercise extends BaseExercise {
   update(dt: number): void {
     const now = Date.now();
 
-    // Crosshair movement during offset phase
-    if (this.offsetPhase && this.crosshairGroup && this.input) {
-      const axes = this.input.getThumbstickAxes();
-      const dist = Math.abs(this.trialConditions[this.currentTrial]?.distance ?? -1.8);
-      const speed = CROSSHAIR_SPEED * (dist / REF_DISTANCE);
-      this.crosshairOffsetX += axes.x * speed * dt;
-      this.crosshairOffsetY -= axes.y * speed * dt; // Y inverted on Quest
+    // Crosshair positioning during offset phase via controller ray
+    if (this.offsetPhase && this.crosshairGroup && this.renderer && this.redDot) {
+      // Get world position of the red dot (defines the plane we intersect)
+      const redDotWorld = new THREE.Vector3();
+      this.redDot.getWorldPosition(redDotWorld);
 
-      // Clamp to reasonable range
-      const maxOffset = 0.3 * (dist / REF_DISTANCE);
-      this.crosshairOffsetX = THREE.MathUtils.clamp(this.crosshairOffsetX, -maxOffset, maxOffset);
-      this.crosshairOffsetY = THREE.MathUtils.clamp(this.crosshairOffsetY, -maxOffset, maxOffset);
+      // Define a plane at the red dot's depth, facing the user (normal = +Z)
+      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -redDotWorld.z);
 
-      if (this.redDot) {
+      // Try each controller — use the first one that's tracked
+      let intersection: THREE.Vector3 | null = null;
+      for (let i = 0; i < 2; i++) {
+        const ray = this.renderer.getControllerRay(i);
+        if (!ray) continue;
+
+        const threeRay = new THREE.Ray(ray.origin, ray.direction);
+        const target = new THREE.Vector3();
+        const hit = threeRay.intersectPlane(plane, target);
+        if (hit) {
+          intersection = target;
+          break;
+        }
+      }
+
+      if (intersection) {
+        // Convert intersection from world space to content-local space
+        const localHit = this.renderer.worldToContentLocal(intersection);
+
+        // Compute offset from red dot position (both in content-local space)
+        this.crosshairOffsetX = localHit.x - this.redDot.position.x;
+        this.crosshairOffsetY = localHit.y - this.redDot.position.y;
+
+        // Clamp to reasonable range
+        const dist = Math.abs(this.trialConditions[this.currentTrial]?.distance ?? -1.8);
+        const maxOffset = 0.3 * (dist / REF_DISTANCE);
+        this.crosshairOffsetX = THREE.MathUtils.clamp(this.crosshairOffsetX, -maxOffset, maxOffset);
+        this.crosshairOffsetY = THREE.MathUtils.clamp(this.crosshairOffsetY, -maxOffset, maxOffset);
+
         this.crosshairGroup.position.set(
           this.redDot.position.x + this.crosshairOffsetX,
           this.redDot.position.y + this.crosshairOffsetY,
@@ -307,6 +341,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
       if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
+      if (this.scatterMesh) this.renderer.removeFromScene(this.scatterMesh);
     }
 
     this.redDot?.geometry.dispose();
@@ -332,6 +367,9 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
     this.feedbackMaterial?.dispose();
+    this.scatterMesh?.geometry.dispose();
+    this.scatterMaterial?.map?.dispose();
+    this.scatterMaterial?.dispose();
 
     this.renderer = null;
     this.input = null;
@@ -387,6 +425,13 @@ export class SuppressionCheckExercise extends BaseExercise {
       farFusionRate: perDistance['far'] ?? 0,
       avgVergenceOffsetMm: avgOffsetMm,
       vergenceOffsetCount: offsets.length,
+      vergenceOffsets: this.results
+        .filter((r) => r.vergenceOffset)
+        .map((r) => ({
+          xMm: Math.round(r.vergenceOffset!.x * 1000),
+          yMm: Math.round(r.vergenceOffset!.y * 1000),
+          distance: r.condition.distanceLabel,
+        })),
     };
   }
 
@@ -635,7 +680,7 @@ export class SuppressionCheckExercise extends BaseExercise {
 
   private renderOffsetInstructions(): void {
     const tex = this.textRenderer.renderToTexture({
-      text: 'Move + to where you see the red dot\nStick to move  •  Trigger to confirm',
+      text: 'Point controller where you see the red dot\nAim to move  •  Trigger to confirm',
       width: 1024,
       height: 140,
       fontSize: 30,
@@ -748,6 +793,161 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.instructionMesh!.position.set(0, DOT_Y - 0.55, -1.7);
 
     this.feedbackMesh!.visible = false;
+
+    // Render and show scatter plot if there are offset measurements
+    const scatterTex = this.renderScatterPlot();
+    if (scatterTex && this.scatterMesh && this.scatterMaterial) {
+      this.scatterMaterial.map = scatterTex;
+      this.scatterMaterial.needsUpdate = true;
+      this.scatterMesh.position.set(1.1, DOT_Y - 0.55, -1.7);
+      this.scatterMesh.visible = true;
+    }
+  }
+
+  private renderScatterPlot(): THREE.CanvasTexture | null {
+    const offsets = this.results
+      .filter((r) => r.vergenceOffset)
+      .map((r) => ({
+        x: r.vergenceOffset!.x,
+        y: r.vergenceOffset!.y,
+        distance: r.condition.distanceLabel,
+      }));
+
+    if (offsets.length === 0) return null;
+
+    const SIZE = 800;
+    const canvas = document.createElement('canvas');
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    const ctx = canvas.getContext('2d')!;
+
+    // Background
+    ctx.fillStyle = PANEL_BG;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, SIZE, SIZE, 24);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = '#362a40';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(1.5, 1.5, SIZE - 3, SIZE - 3, 24);
+    ctx.stroke();
+
+    const cx = SIZE / 2;
+    const cy = SIZE / 2;
+    const plotRadius = SIZE * 0.35;
+
+    // Scale: 30mm maps to plotRadius (covers clinically meaningful FD range)
+    const maxMm = 30;
+    const scale = plotRadius / maxMm;
+
+    // Title
+    ctx.fillStyle = '#e0d6cc';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Vergence Offset Map', cx, 20);
+
+    // Concentric range circles
+    const rings = [5, 10, 20];
+    ctx.strokeStyle = '#2a2235';
+    ctx.lineWidth = 1;
+    for (const mm of rings) {
+      const r = mm * scale;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#5a4f66';
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`${mm}mm`, cx + r + 4, cy - 2);
+    }
+
+    // Crosshair grid lines
+    ctx.strokeStyle = '#3a2f46';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - plotRadius - 20, cy);
+    ctx.lineTo(cx + plotRadius + 20, cy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - plotRadius - 20);
+    ctx.lineTo(cx, cy + plotRadius + 20);
+    ctx.stroke();
+
+    // Axis labels — nasal/temporal depends on training eye
+    const isRightEye = this.renderer?.getTrainingEye() === 'right';
+    const leftLabel = isRightEye ? 'Nasal (eso)' : 'Temporal (exo)';
+    const rightLabel = isRightEye ? 'Temporal (exo)' : 'Nasal (eso)';
+
+    ctx.fillStyle = '#7a6f88';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(rightLabel, cx + plotRadius + 8, cy + 18);
+
+    ctx.textAlign = 'right';
+    ctx.fillText(leftLabel, cx - plotRadius - 8, cy + 18);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Up (hyper)', cx, cy - plotRadius - 8);
+    ctx.textBaseline = 'top';
+    ctx.fillText('Down (hypo)', cx, cy + plotRadius + 8);
+
+    // Distance color map
+    const distColors: Record<string, string> = {
+      near: '#5ac97a',
+      medium: '#c9a85a',
+      far: '#c95a5a',
+    };
+
+    // Legend
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    let legendY = SIZE - 60;
+    for (const [label, color] of Object.entries(distColors)) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx - 80, legendY, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillText(label.charAt(0).toUpperCase() + label.slice(1), cx - 66, legendY);
+      legendY += 20;
+    }
+
+    // Plot data points
+    for (const pt of offsets) {
+      const color = distColors[pt.distance] ?? '#888888';
+      const px = cx + (pt.x * 1000) * scale;
+      // Canvas Y is inverted (positive offset = up in scene = up on chart)
+      const py = cy - (pt.y * 1000) * scale;
+
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(px, py, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1.0;
+
+    // Center dot (zero offset = perfect alignment)
+    ctx.fillStyle = '#dbb870';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    return texture;
   }
 
   private renderInstructions(): void {

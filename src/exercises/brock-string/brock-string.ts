@@ -55,6 +55,8 @@ const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
 const SEQUENCES = 3;
 const PANEL_BG = '#16111e';
+const STRING_SEGMENTS = 32;  // Curve resolution
+const STRING_SAG = 0.06;     // Max droop in meters per meter of length
 
 export class BrockStringExercise extends BaseExercise {
   readonly name = 'Brock String';
@@ -103,6 +105,7 @@ export class BrockStringExercise extends BaseExercise {
   private stringNearEnd: THREE.Vector3 = new THREE.Vector3(0, STRING_Y, STRING_START_Z);
   private readonly stringFarEnd: THREE.Vector3 = new THREE.Vector3(0, STRING_Y, STRING_END_Z);
   private beadProportions: number[] = [];
+  private stringCurve: THREE.CatmullRomCurve3 | null = null;
 
   private exitCallback: (() => void) | null = null;
 
@@ -185,8 +188,8 @@ export class BrockStringExercise extends BaseExercise {
       if (pos) {
         const localPos = this.renderer.worldToContentLocal(pos);
         this.stringNearEnd.copy(localPos);
-        this.orientStringBetween(localPos, this.stringFarEnd);
-        this.repositionBeads(localPos, this.stringFarEnd);
+        this.rebuildStringGeometry(localPos, this.stringFarEnd);
+        this.repositionBeads();
 
         // Keep highlight ring on current bead
         if (this.highlightRing?.visible && !this.highlightTransitioning) {
@@ -379,28 +382,45 @@ export class BrockStringExercise extends BaseExercise {
   private createString(): void {
     if (!this.renderer) return;
 
-    // Unit-height cylinder — oriented dynamically via quaternion
-    const geo = new THREE.CylinderGeometry(0.002, 0.002, 1, 8);
     this.stringMaterial = new THREE.MeshBasicMaterial({ color: 0xddd0c0 });
-    this.stringMesh = new THREE.Mesh(geo, this.stringMaterial);
-    this.orientStringBetween(this.stringNearEnd, this.stringFarEnd);
-    this.renderer.addToBothEyes(this.stringMesh);
+    this.rebuildStringGeometry(this.stringNearEnd, this.stringFarEnd);
   }
 
-  private orientStringBetween(near: THREE.Vector3, far: THREE.Vector3): void {
-    if (!this.stringMesh) return;
+  /**
+   * Build a catenary-like curve between two points with sag.
+   * Returns curve points for both the string mesh and bead positioning.
+   */
+  private buildStringCurve(near: THREE.Vector3, far: THREE.Vector3): THREE.CatmullRomCurve3 {
+    const length = near.distanceTo(far);
+    const sagAmount = STRING_SAG * length;
+    const points: THREE.Vector3[] = [];
 
-    const dir = new THREE.Vector3().subVectors(far, near);
-    const length = dir.length();
-    dir.normalize();
+    for (let i = 0; i <= STRING_SEGMENTS; i++) {
+      const t = i / STRING_SEGMENTS;
+      const pos = new THREE.Vector3().lerpVectors(near, far, t);
+      // Parabolic sag: max at t=0.5, zero at endpoints
+      const sag = sagAmount * 4 * t * (1 - t);
+      pos.y -= sag;
+      points.push(pos);
+    }
 
-    const mid = new THREE.Vector3().lerpVectors(near, far, 0.5);
-    this.stringMesh.position.copy(mid);
+    return new THREE.CatmullRomCurve3(points);
+  }
 
-    // Orient cylinder's Y axis along the direction vector
-    const up = new THREE.Vector3(0, 1, 0);
-    this.stringMesh.quaternion.setFromUnitVectors(up, dir);
-    this.stringMesh.scale.set(1, length, 1);
+  private rebuildStringGeometry(near: THREE.Vector3, far: THREE.Vector3): void {
+    if (!this.stringMaterial || !this.renderer) return;
+
+    this.stringCurve = this.buildStringCurve(near, far);
+
+    const geo = new THREE.TubeGeometry(this.stringCurve, STRING_SEGMENTS, 0.002, 6, false);
+
+    if (this.stringMesh) {
+      this.stringMesh.geometry.dispose();
+      this.stringMesh.geometry = geo;
+    } else {
+      this.stringMesh = new THREE.Mesh(geo, this.stringMaterial);
+      this.renderer.addToBothEyes(this.stringMesh);
+    }
   }
 
   private createBeads(): void {
@@ -418,9 +438,10 @@ export class BrockStringExercise extends BaseExercise {
     }
   }
 
-  private repositionBeads(near: THREE.Vector3, far: THREE.Vector3): void {
+  private repositionBeads(): void {
+    if (!this.stringCurve) return;
     for (let i = 0; i < BEADS.length; i++) {
-      const pos = new THREE.Vector3().lerpVectors(near, far, this.beadProportions[i]);
+      const pos = this.stringCurve.getPointAt(this.beadProportions[i]);
       this.beadMeshes[i].position.copy(pos);
     }
   }

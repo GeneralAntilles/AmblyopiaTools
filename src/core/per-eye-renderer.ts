@@ -12,6 +12,8 @@
 
 import * as THREE from 'three';
 
+const _tempQuat = new THREE.Quaternion();
+
 export type EyeSide = 'left' | 'right';
 
 export const LAYER_SHARED = 0;
@@ -29,6 +31,7 @@ export class PerEyeRenderer {
   private frameCallback: FrameCallback | null = null;
   private headYDetected: boolean = false;
   private controllerGrips: THREE.Group[] = [];
+  private controllerRays: THREE.Group[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -126,6 +129,26 @@ export class PerEyeRenderer {
     return pos;
   }
 
+  /**
+   * Get a controller's target ray (pointing direction) in world space.
+   * Returns null if the controller is not tracked.
+   */
+  getControllerRay(index: number): { origin: THREE.Vector3; direction: THREE.Vector3 } | null {
+    if (index >= this.controllerRays.length) return null;
+    const raySpace = this.controllerRays[index];
+
+    const origin = new THREE.Vector3();
+    raySpace.getWorldPosition(origin);
+    if (origin.lengthSq() < 0.001) return null;
+
+    const direction = new THREE.Vector3(0, 0, -1);
+    raySpace.getWorldQuaternion(_tempQuat);
+    direction.applyQuaternion(_tempQuat);
+    direction.normalize();
+
+    return { origin, direction };
+  }
+
   onFrame(callback: FrameCallback): void {
     this.frameCallback = callback;
   }
@@ -141,6 +164,13 @@ export class PerEyeRenderer {
       const grip = this.renderer.xr.getControllerGrip(i);
       this.scene.add(grip);
       this.controllerGrips.push(grip);
+    }
+
+    // Track controller target rays for pointing/ray-casting
+    for (let i = 0; i < 2; i++) {
+      const ray = this.renderer.xr.getController(i);
+      this.scene.add(ray);
+      this.controllerRays.push(ray);
     }
 
     this.renderer.setAnimationLoop((time: number, frame?: XRFrame) => {
@@ -174,6 +204,8 @@ export class PerEyeRenderer {
     this.contentGroup.position.y = 0;
     for (const grip of this.controllerGrips) this.scene.remove(grip);
     this.controllerGrips = [];
+    for (const ray of this.controllerRays) this.scene.remove(ray);
+    this.controllerRays = [];
   }
 
   private configureCameraLayers(): void {
