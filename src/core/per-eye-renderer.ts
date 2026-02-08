@@ -23,9 +23,11 @@ export type FrameCallback = (time: number, frame: XRFrame | null) => void;
 export class PerEyeRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
+  private contentGroup: THREE.Group;
   private dummyCamera: THREE.PerspectiveCamera;
   private trainingEye: EyeSide = 'right';
   private frameCallback: FrameCallback | null = null;
+  private headYDetected: boolean = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -38,6 +40,12 @@ export class PerEyeRenderer {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
+
+    // Content group: all exercise objects go here.
+    // Auto-adjusts Y offset based on detected head height so
+    // exercises work for both sitting (~1.2m) and standing (~1.6m).
+    this.contentGroup = new THREE.Group();
+    this.scene.add(this.contentGroup);
 
     // Needed for renderer.render() signature; ignored in XR mode
     this.dummyCamera = new THREE.PerspectiveCamera();
@@ -64,7 +72,7 @@ export class PerEyeRenderer {
    */
   addToTrainingEye(obj: THREE.Object3D): void {
     setLayerRecursive(obj, LAYER_TRAINING);
-    this.scene.add(obj);
+    this.contentGroup.add(obj);
   }
 
   /**
@@ -72,7 +80,7 @@ export class PerEyeRenderer {
    */
   addToNonTrainingEye(obj: THREE.Object3D): void {
     setLayerRecursive(obj, LAYER_NON_TRAINING);
-    this.scene.add(obj);
+    this.contentGroup.add(obj);
   }
 
   /**
@@ -80,14 +88,29 @@ export class PerEyeRenderer {
    */
   addToBothEyes(obj: THREE.Object3D): void {
     setLayerRecursive(obj, LAYER_SHARED);
-    this.scene.add(obj);
+    this.contentGroup.add(obj);
   }
 
   /**
-   * Remove an object from the scene.
+   * Remove an object from the content group.
    */
   removeFromScene(obj: THREE.Object3D): void {
-    this.scene.remove(obj);
+    this.contentGroup.remove(obj);
+  }
+
+  /**
+   * Get the user's head position in world space.
+   */
+  getHeadPosition(): THREE.Vector3 {
+    return this.renderer.xr.getCamera().position.clone();
+  }
+
+  /**
+   * Convert a world-space position to content-local space
+   * (accounts for the head-height Y offset).
+   */
+  worldToContentLocal(pos: THREE.Vector3): THREE.Vector3 {
+    return this.contentGroup.worldToLocal(pos.clone());
   }
 
   onFrame(callback: FrameCallback): void {
@@ -104,6 +127,19 @@ export class PerEyeRenderer {
       // Configure per-eye camera layers before Three.js renders
       this.configureCameraLayers();
 
+      // Auto-detect head height and offset content for sitting vs standing.
+      // Exercises assume eye height ~1.5m. Offset on first valid frame.
+      if (!this.headYDetected) {
+        const headY = this.renderer.xr.getCamera().position.y;
+        if (headY > 0.1) {
+          this.headYDetected = true;
+          const offset = headY - 1.5;
+          if (Math.abs(offset) > 0.05) {
+            this.contentGroup.position.y = offset;
+          }
+        }
+      }
+
       // Let consumer do input polling, exercise updates, etc.
       this.frameCallback?.(time, frame ?? null);
 
@@ -114,6 +150,8 @@ export class PerEyeRenderer {
 
   stopSession(): void {
     this.renderer.setAnimationLoop(null);
+    this.headYDetected = false;
+    this.contentGroup.position.y = 0;
   }
 
   private configureCameraLayers(): void {

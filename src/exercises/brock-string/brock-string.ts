@@ -78,6 +78,8 @@ export class BrockStringExercise extends BaseExercise {
   private feedbackMaterial: THREE.MeshBasicMaterial | null = null;
   private guideMesh: THREE.Mesh | null = null;
   private guideMaterial: THREE.MeshBasicMaterial | null = null;
+  private arrowMeshes: THREE.Mesh[] = [];
+  private arrowMaterials: THREE.MeshBasicMaterial[] = [];
 
   // Exercise state
   private currentSequence: number = 0;
@@ -130,6 +132,7 @@ export class BrockStringExercise extends BaseExercise {
       if (this.waitingForStart && action === 'select') {
         this.waitingForStart = false;
         if (this.guideMesh) this.guideMesh.visible = false;
+        for (const a of this.arrowMeshes) a.visible = false;
         this.startTrial();
         return;
       }
@@ -156,10 +159,50 @@ export class BrockStringExercise extends BaseExercise {
   update(dt: number): void {
     this.pulseTime += dt;
 
-    // Pulse nose guide
-    if (this.waitingForStart && this.guideMesh) {
-      const pulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
-      this.guideMaterial!.opacity = pulse;
+    // Proximity-based auto-start with arrow guide
+    if (this.waitingForStart && this.guideMesh && this.renderer) {
+      const headPos = this.renderer.getHeadPosition();
+      const guideWorldPos = new THREE.Vector3();
+      this.guideMesh.getWorldPosition(guideWorldPos);
+
+      const dist = headPos.distanceTo(guideWorldPos);
+
+      if (dist < 0.2) {
+        // Close enough — auto-start
+        this.guideMaterial!.color.set(0x5ac97a);
+        this.waitingForStart = false;
+        this.guideMesh.visible = false;
+        for (const a of this.arrowMeshes) a.visible = false;
+        this.startTrial();
+      } else {
+        // Color guide by proximity
+        const t = Math.max(0, Math.min(1, 1 - (dist - 0.2) / 0.6));
+        if (t > 0.6) {
+          this.guideMaterial!.color.set(0x5ac97a);
+        } else if (t > 0.3) {
+          this.guideMaterial!.color.set(0xc9a85a);
+        } else {
+          this.guideMaterial!.color.set(0xc95a5a);
+        }
+
+        // Pulse guide ring
+        const guidePulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
+        this.guideMaterial!.opacity = guidePulse;
+
+        // Position arrow chevrons between head and guide
+        for (let i = 0; i < this.arrowMeshes.length; i++) {
+          const frac = 0.3 + i * 0.2;
+          const worldPos = new THREE.Vector3().lerpVectors(headPos, guideWorldPos, frac);
+          const localPos = this.renderer.worldToContentLocal(worldPos);
+          this.arrowMeshes[i].position.copy(localPos);
+          this.arrowMeshes[i].lookAt(guideWorldPos);
+
+          // Sequential wave animation
+          const phase = this.pulseTime * 4 - i * 1.2;
+          const pulse = 0.2 + 0.5 * Math.max(0, Math.sin(phase));
+          this.arrowMaterials[i].opacity = pulse;
+        }
+      }
     }
 
     // Smooth highlight ring transition
@@ -178,7 +221,7 @@ export class BrockStringExercise extends BaseExercise {
     }
 
     // Pulse the highlight ring
-    if (this.highlightRing && this.awaitingResponse) {
+    if (this.highlightRing?.visible && !this.highlightTransitioning) {
       const scale = 1.0 + 0.15 * Math.sin(this.pulseTime * 4);
       this.highlightRing.scale.set(scale, scale, 1);
     }
@@ -203,6 +246,7 @@ export class BrockStringExercise extends BaseExercise {
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
       if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
       if (this.guideMesh) this.renderer.removeFromScene(this.guideMesh);
+      for (const a of this.arrowMeshes) this.renderer.removeFromScene(a);
     }
 
     this.stringMesh?.geometry.dispose();
@@ -222,6 +266,10 @@ export class BrockStringExercise extends BaseExercise {
     this.feedbackMaterial?.dispose();
     this.guideMesh?.geometry.dispose();
     this.guideMaterial?.dispose();
+    for (let i = 0; i < this.arrowMeshes.length; i++) {
+      this.arrowMeshes[i].geometry.dispose();
+      this.arrowMaterials[i].dispose();
+    }
 
     this.renderer = null;
     this.input = null;
@@ -364,6 +412,24 @@ export class BrockStringExercise extends BaseExercise {
     this.guideMesh = new THREE.Mesh(guideGeo, this.guideMaterial);
     this.guideMesh.position.set(0, STRING_Y, STRING_START_Z);
     this.renderer.addToBothEyes(this.guideMesh);
+
+    // Arrow chevrons pointing toward guide
+    const arrowGeo = new THREE.ConeGeometry(0.015, 0.05, 4);
+    arrowGeo.rotateX(-Math.PI / 2); // Tip points along -Z (forward for lookAt)
+
+    for (let i = 0; i < 3; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xdbb870,
+        transparent: true,
+        opacity: 0.6,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(arrowGeo.clone(), mat);
+      mesh.position.set(0, STRING_Y, STRING_START_Z + 0.15 + i * 0.12);
+      this.renderer!.addToBothEyes(mesh);
+      this.arrowMeshes.push(mesh);
+      this.arrowMaterials.push(mat);
+    }
   }
 
   // --- Trial Logic ---
@@ -477,7 +543,7 @@ export class BrockStringExercise extends BaseExercise {
 
   private showNosePrompt(): void {
     const tex = this.textRenderer.renderToTexture({
-      text: 'Align the golden ring in front of your nose\nTrigger to begin',
+      text: 'Move toward the golden ring\nExercise starts when you\'re in position',
       width: 1024,
       height: 130,
       fontSize: 30,
