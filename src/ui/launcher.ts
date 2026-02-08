@@ -69,7 +69,7 @@ const EXERCISES: ExerciseDefinition[] = [
     id: 'suppression-check',
     name: 'Suppression Check',
     description:
-      'Worth 4-dot style diagnostic. Detect binocular suppression before and after training. Quick (~2 min).',
+      'Worth 4-dot test at varying distances. Detects binocular suppression with per-distance breakdown. 12 trials (~2 min).',
     type: 'diagnostic',
     available: true,
   },
