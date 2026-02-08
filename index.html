@@ -333,10 +333,24 @@
         <div class="setting-group">
           <label for="non-training-display">Non-Training Eye</label>
           <select id="non-training-display">
-            <option value="blank">Blank (black)</option>
+            <option value="dichoptic">Dichoptic (reduced contrast text)</option>
+            <option value="blank">Blank (dark panel)</option>
             <option value="fixation">Fixation cross</option>
             <option value="pattern">Low-contrast pattern</option>
           </select>
+        </div>
+      </div>
+      <div class="settings-grid" id="contrast-settings" style="display:none">
+        <div class="setting-group">
+          <label for="contrast-dominant">Fellow Eye Contrast</label>
+          <input type="range" id="contrast-dominant" min="0" max="100" value="20" step="5" />
+          <span id="contrast-dominant-value" style="font-size:13px;color:#888;">20%</span>
+        </div>
+        <div class="setting-group">
+          <label style="font-size:12px;color:#666;line-height:1.4;">
+            Lower = harder for fellow eye (more therapeutic).<br/>
+            Increase gradually over sessions as binocular function improves.
+          </label>
         </div>
       </div>
       <h2>Reading Source</h2>

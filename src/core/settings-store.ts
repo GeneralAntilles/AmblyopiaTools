@@ -17,7 +17,7 @@ export interface UserSettings {
   fontSize: number;
   lineHeight: number;
   fontFamily: string;
-  nonTrainingDisplay: 'blank' | 'fixation' | 'pattern';
+  nonTrainingDisplay: 'blank' | 'fixation' | 'pattern' | 'dichoptic';
   lastExercise: string;
   contrastDominant: number;
   contrastAmblyopic: number;

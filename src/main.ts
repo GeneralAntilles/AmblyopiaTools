@@ -190,7 +190,7 @@ async function startExercise(exerciseId: string): Promise<void> {
         fontSize: currentSettings.fontSize as number,
         lineHeight: currentSettings.lineHeight as number,
         fontFamily: currentSettings.fontFamily as string,
-        nonTrainingDisplay: currentSettings.nonTrainingDisplay as 'blank' | 'fixation' | 'pattern',
+        nonTrainingDisplay: currentSettings.nonTrainingDisplay as 'blank' | 'fixation' | 'pattern' | 'dichoptic',
         chapters,
         startChapter: chapters ? launcher.getSelectedChapterIndex() : undefined,
       });
@@ -207,9 +207,16 @@ async function startExercise(exerciseId: string): Promise<void> {
 
       activeExercise = exercise;
 
-      const statusText = chapters
-        ? 'Monocular Reading — ↔ page, ↕ chapter, grip exit'
-        : 'Monocular Reading — Grip to exit';
+      const isDichoptic = currentSettings.nonTrainingDisplay === 'dichoptic';
+      const contrastPct = isDichoptic ? Math.round((contrastEngine?.getDominantContrast() ?? 0.2) * 100) : 0;
+      let statusText: string;
+      if (isDichoptic) {
+        statusText = `Dichoptic ${contrastPct}% — grip exit`;
+      } else if (chapters) {
+        statusText = 'Reading — ↔ page, ↕ chapter, grip exit';
+      } else {
+        statusText = 'Reading — grip exit';
+      }
       vrHud?.updateStatus(statusText);
       break;
     }

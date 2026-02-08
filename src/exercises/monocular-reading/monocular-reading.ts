@@ -1,11 +1,16 @@
 /**
- * Monocular Reading Exercise
+ * Reading Exercise (Monocular or Dichoptic)
  *
- * Renders paginated text to the training (amblyopic) eye only.
- * The non-training eye sees a configurable alternative:
- *   - blank (dark panel)
- *   - fixation cross
- *   - low-contrast noise pattern
+ * Renders paginated text to the training (amblyopic) eye.
+ * The non-training (fellow) eye sees a configurable alternative:
+ *   - blank: dark panel
+ *   - fixation: fixation cross
+ *   - pattern: low-contrast noise
+ *   - dichoptic: same text at reduced contrast (evidence-based therapy)
+ *
+ * In dichoptic mode, both eyes see the reading text but the fellow eye's
+ * contrast is reduced via the ContrastEngine. This forces binocular
+ * cooperation rather than pure monocular occlusion.
  *
  * Supports multi-chapter books (EPUB). In VR:
  *   - Thumbstick left/right or trigger: page back/forward
@@ -17,6 +22,7 @@ import * as THREE from 'three';
 import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
 import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
+import type { ContrastEngine } from '../../core/contrast-engine';
 import { TextRenderer, paginateByFit } from '../../utils/text-renderer';
 import { TextureCache } from '../../utils/texture-cache';
 
@@ -25,12 +31,14 @@ export interface BookChapterData {
   text: string;
 }
 
+export type NonTrainingDisplay = 'blank' | 'fixation' | 'pattern' | 'dichoptic';
+
 export interface MonocularReadingSettings {
   text: string;
   fontSize: number;
   lineHeight: number;
   fontFamily: string;
-  nonTrainingDisplay: 'blank' | 'fixation' | 'pattern';
+  nonTrainingDisplay: NonTrainingDisplay;
   /** Optional multi-chapter content. If provided, overrides `text`. */
   chapters?: BookChapterData[];
   /** Starting chapter index (default 0) */
@@ -56,12 +64,17 @@ const PANEL_BORDER_W = 4;
 const PANEL_RADIUS = 48;
 const TEXT_COLOR = '#d4d4dc';
 
+// Parsed RGB values for color interpolation
+const BG_RGB = { r: 0x11, g: 0x11, b: 0x19 };
+const FG_RGB = { r: 0xd4, g: 0xd4, b: 0xdc };
+
 export class MonocularReadingExercise extends BaseExercise {
   readonly name = 'Monocular Reading';
   readonly description = 'Read text with your training eye only. Strengthens amblyopic eye neural pathways.';
   readonly type = 'monocular' as const;
 
   private settings: MonocularReadingSettings;
+  private contrastEngine: ContrastEngine | null = null;
 
   // Chapter management
   private chapters: BookChapterData[] = [];
@@ -104,16 +117,22 @@ export class MonocularReadingExercise extends BaseExercise {
     super();
     this.settings = { ...DEFAULT_READING_SETTINGS, ...settings };
     this.textRenderer = new TextRenderer();
-    this.textureCache = new TextureCache(10);
+    // Larger cache for dichoptic mode (2 textures per page)
+    this.textureCache = new TextureCache(20);
   }
 
   setExitCallback(cb: () => void): void {
     this.exitCallback = cb;
   }
 
+  get isDichoptic(): boolean {
+    return this.settings.nonTrainingDisplay === 'dichoptic';
+  }
+
   async setup(config: ExerciseConfig): Promise<void> {
     this.renderer = config.renderer;
     this.input = config.input;
+    this.contrastEngine = config.contrast;
 
     // Build chapter list
     if (this.settings.chapters?.length) {
@@ -254,11 +273,13 @@ export class MonocularReadingExercise extends BaseExercise {
     this.glowMaterial = null;
     this.renderer = null;
     this.input = null;
+    this.contrastEngine = null;
   }
 
   getSessionStats(): SessionStats {
+    const contrast = this.contrastEngine?.getDominantContrast() ?? 0;
     return {
-      exercise: 'monocular-reading',
+      exercise: this.isDichoptic ? 'dichoptic-reading' : 'monocular-reading',
       durationMs: this.getElapsedMs(),
       pagesRead: this.pagesRead,
       totalPages: this.pages.length,
@@ -266,6 +287,8 @@ export class MonocularReadingExercise extends BaseExercise {
       chaptersRead: this.chaptersRead,
       totalChapters: this.chapters.length,
       currentChapter: this.currentChapter + 1,
+      mode: this.settings.nonTrainingDisplay,
+      fellowEyeContrast: this.isDichoptic ? Math.round(contrast * 100) : 0,
     };
   }
 
@@ -274,16 +297,15 @@ export class MonocularReadingExercise extends BaseExercise {
   private createEnvironment(): void {
     if (!this.renderer) return;
 
-    // Gradient sky dome — subtle dark ambient, not pure black
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
     const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#0e0e1c'); // overhead — slight blue glow
+    gradient.addColorStop(0.0, '#0e0e1c');
     gradient.addColorStop(0.35, '#0a0a14');
     gradient.addColorStop(0.7, '#060610');
-    gradient.addColorStop(1.0, '#040408'); // floor level — very dark
+    gradient.addColorStop(1.0, '#040408');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 4, 512);
 
@@ -300,7 +322,6 @@ export class MonocularReadingExercise extends BaseExercise {
   private createGlow(): void {
     if (!this.renderer) return;
 
-    // Soft radial glow behind the reading panel
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -344,13 +365,21 @@ export class MonocularReadingExercise extends BaseExercise {
 
   // --- Navigation ---
 
+  private onPageChanged(): void {
+    this.renderCurrentPage();
+    this.renderPageIndicator();
+    this.renderProgressBar();
+    // Dichoptic: non-training eye shows the same page text
+    if (this.isDichoptic) {
+      this.renderNonTrainingEye();
+    }
+  }
+
   private nextPage(): void {
     if (this.currentPage < this.pages.length - 1) {
       this.currentPage++;
       this.pagesRead++;
-      this.renderCurrentPage();
-      this.renderPageIndicator();
-      this.renderProgressBar();
+      this.onPageChanged();
     } else if (this.currentChapter < this.chapters.length - 1) {
       this.nextChapter();
     }
@@ -359,16 +388,12 @@ export class MonocularReadingExercise extends BaseExercise {
   private prevPage(): void {
     if (this.currentPage > 0) {
       this.currentPage--;
-      this.renderCurrentPage();
-      this.renderPageIndicator();
-      this.renderProgressBar();
+      this.onPageChanged();
     } else if (this.currentChapter > 0) {
       this.currentChapter--;
       this.loadChapter(this.currentChapter);
       this.currentPage = Math.max(0, this.pages.length - 1);
-      this.renderCurrentPage();
-      this.renderPageIndicator();
-      this.renderProgressBar();
+      this.onPageChanged();
     }
   }
 
@@ -376,18 +401,14 @@ export class MonocularReadingExercise extends BaseExercise {
     if (this.currentChapter < this.chapters.length - 1) {
       this.chaptersRead++;
       this.loadChapter(this.currentChapter + 1);
-      this.renderCurrentPage();
-      this.renderPageIndicator();
-      this.renderProgressBar();
+      this.onPageChanged();
     }
   }
 
   private prevChapter(): void {
     if (this.currentChapter > 0) {
       this.loadChapter(this.currentChapter - 1);
-      this.renderCurrentPage();
-      this.renderPageIndicator();
-      this.renderProgressBar();
+      this.onPageChanged();
     }
   }
 
@@ -426,6 +447,34 @@ export class MonocularReadingExercise extends BaseExercise {
     let texture: THREE.CanvasTexture;
 
     switch (this.settings.nonTrainingDisplay) {
+      case 'dichoptic': {
+        // Same text as training eye, but at reduced contrast
+        const contrast = this.contrastEngine?.getDominantContrast() ?? 0.2;
+        const dimColor = lerpColor(BG_RGB, FG_RGB, contrast);
+
+        const cacheKey = `nt-ch${this.currentChapter}-p${this.currentPage}-${this.settings.fontSize}-${this.settings.fontFamily}-c${Math.round(contrast * 100)}`;
+        const cached = this.textureCache.get(cacheKey) as THREE.CanvasTexture | undefined;
+
+        if (cached) {
+          texture = cached;
+        } else {
+          texture = this.textRenderer.renderToTexture({
+            text: this.pages[this.currentPage] ?? '',
+            fontSize: this.settings.fontSize,
+            lineHeight: this.settings.lineHeight,
+            fontFamily: this.settings.fontFamily,
+            color: dimColor,
+            background: PANEL_BG,
+            paddingX: 100,
+            paddingY: 100,
+            borderRadius: PANEL_RADIUS,
+            borderColor: PANEL_BORDER,
+            borderWidth: PANEL_BORDER_W,
+          });
+          this.textureCache.set(cacheKey, texture);
+        }
+        break;
+      }
       case 'fixation':
         texture = this.textRenderer.renderFixationCross(2048, '#3a3a50', PANEL_BG);
         break;
@@ -462,11 +511,9 @@ export class MonocularReadingExercise extends BaseExercise {
     canvas.height = h;
     const ctx = canvas.getContext('2d')!;
 
-    // Track background
     ctx.fillStyle = '#1a1a2c';
     this.roundRectFill(ctx, 0, 2, w, h - 4, (h - 4) / 2);
 
-    // Fill
     const fillW = Math.max(h - 4, w * progress);
     ctx.fillStyle = '#3060a0';
     this.roundRectFill(ctx, 0, 2, fillW, h - 4, (h - 4) / 2);
@@ -507,7 +554,6 @@ export class MonocularReadingExercise extends BaseExercise {
     this.pageIndicatorMaterial.needsUpdate = true;
   }
 
-  // Canvas helper
   private roundRectFill(
     ctx: CanvasRenderingContext2D,
     x: number, y: number,
@@ -527,4 +573,19 @@ export class MonocularReadingExercise extends BaseExercise {
     ctx.closePath();
     ctx.fill();
   }
+}
+
+/**
+ * Linearly interpolate between background and foreground RGB colors.
+ * t=0 returns background (invisible text), t=1 returns foreground (full contrast).
+ */
+function lerpColor(
+  bg: { r: number; g: number; b: number },
+  fg: { r: number; g: number; b: number },
+  t: number
+): string {
+  const r = Math.round(bg.r + t * (fg.r - bg.r));
+  const g = Math.round(bg.g + t * (fg.g - bg.g));
+  const b = Math.round(bg.b + t * (fg.b - bg.b));
+  return `rgb(${r},${g},${b})`;
 }

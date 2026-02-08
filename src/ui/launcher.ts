@@ -274,9 +274,14 @@ export class Launcher {
     this.bindSelect('font-family', settings.fontFamily, (val) =>
       this.store.saveSetting('fontFamily', val)
     );
-    this.bindSelect('non-training-display', settings.nonTrainingDisplay, (val) =>
-      this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern')
-    );
+    this.bindSelect('non-training-display', settings.nonTrainingDisplay, (val) => {
+      this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern' | 'dichoptic');
+      this.updateContrastVisibility();
+    });
+
+    // Contrast slider for dichoptic mode
+    this.bindContrastSlider(settings.contrastDominant);
+    this.updateContrastVisibility();
 
     const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
     if (textarea) {
@@ -305,6 +310,30 @@ export class Launcher {
       const num = parseFloat(el.value);
       if (!isNaN(num)) onChange(num);
     });
+  }
+
+  private bindContrastSlider(value: number): void {
+    const slider = document.getElementById('contrast-dominant') as HTMLInputElement | null;
+    const label = document.getElementById('contrast-dominant-value');
+    if (!slider) return;
+
+    const pct = Math.round(value * 100);
+    slider.value = String(pct);
+    if (label) label.textContent = `${pct}%`;
+
+    slider.addEventListener('input', () => {
+      const num = parseInt(slider.value, 10);
+      if (label) label.textContent = `${num}%`;
+      this.store.saveSetting('contrastDominant', num / 100);
+    });
+  }
+
+  private updateContrastVisibility(): void {
+    const contrastSection = document.getElementById('contrast-settings');
+    const displaySelect = document.getElementById('non-training-display') as HTMLSelectElement | null;
+    if (contrastSection && displaySelect) {
+      contrastSection.style.display = displaySelect.value === 'dichoptic' ? 'grid' : 'none';
+    }
   }
 
   private bindEnterVR(): void {
