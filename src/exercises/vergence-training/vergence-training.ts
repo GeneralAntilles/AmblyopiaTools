@@ -39,10 +39,10 @@ const RING_Y = 1.5;
 const RING_Z = -2.0;
 const RING_SIZE = 0.2; // Outer radius of the ring in meters
 const INITIAL_DISPARITY = 0.01; // Starting disparity in meters (~6mm)
-const STEP_UP = 0.004; // Increase disparity after fusion
+const STEP_UP = 0.006; // Increase disparity after fusion
 const STEP_DOWN = 0.008; // Decrease disparity after failure (larger to stay in range)
 const MIN_DISPARITY = 0.002;
-const MAX_DISPARITY = 0.06;
+const MAX_DISPARITY = 0.12;
 const PANEL_BG = '#111119';
 
 export class VergenceTrainingExercise extends BaseExercise {
@@ -80,6 +80,11 @@ export class VergenceTrainingExercise extends BaseExercise {
   private showingFeedback: boolean = false;
   private feedbackTimeout: number = 0;
   private completed: boolean = false;
+
+  // Transition animation
+  private targetTrainingX: number = 0;
+  private targetNonTrainingX: number = 0;
+  private transitioning: boolean = false;
 
   private exitCallback: (() => void) | null = null;
 
@@ -139,7 +144,26 @@ export class VergenceTrainingExercise extends BaseExercise {
     this.markStarted();
   }
 
-  update(_dt: number): void {
+  update(dt: number): void {
+    // Smooth ring transition
+    if (this.transitioning) {
+      const speed = 4.0;
+      const tx = this.trainingRingGroup.position.x;
+      const ntx = this.nonTrainingRingGroup.position.x;
+
+      this.trainingRingGroup.position.x = THREE.MathUtils.lerp(tx, this.targetTrainingX, Math.min(1, speed * dt));
+      this.nonTrainingRingGroup.position.x = THREE.MathUtils.lerp(ntx, this.targetNonTrainingX, Math.min(1, speed * dt));
+
+      if (Math.abs(this.trainingRingGroup.position.x - this.targetTrainingX) < 0.0003 &&
+          Math.abs(this.nonTrainingRingGroup.position.x - this.targetNonTrainingX) < 0.0003) {
+        this.trainingRingGroup.position.x = this.targetTrainingX;
+        this.nonTrainingRingGroup.position.x = this.targetNonTrainingX;
+        this.transitioning = false;
+        this.trialStartTime = Date.now();
+        this.awaitingResponse = true;
+      }
+    }
+
     if (this.showingFeedback && Date.now() > this.feedbackTimeout) {
       this.showingFeedback = false;
       this.feedbackMesh!.visible = false;
@@ -285,7 +309,7 @@ export class VergenceTrainingExercise extends BaseExercise {
   private createUI(): void {
     if (!this.renderer) return;
 
-    const instructGeo = new THREE.PlaneGeometry(1.2, 0.12);
+    const instructGeo = new THREE.PlaneGeometry(1.4, 0.18);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -295,7 +319,7 @@ export class VergenceTrainingExercise extends BaseExercise {
     this.instructionMesh.position.set(0, RING_Y - 0.45, RING_Z);
     this.renderer.addToBothEyes(this.instructionMesh);
 
-    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.06);
+    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -315,23 +339,18 @@ export class VergenceTrainingExercise extends BaseExercise {
       ? this.convergenceDisparity
       : this.divergenceDisparity;
 
-    // Apply disparity: shift each eye's ring in opposite X directions
-    // Convergence: training eye ring shifts right, non-training shifts left
-    //   → eyes must converge (toe in) to fuse
-    // Divergence: training eye ring shifts left, non-training shifts right
-    //   → eyes must diverge (toe out) to fuse
     const halfD = disparity / 2;
 
     if (direction === 'convergence') {
-      this.trainingRingGroup.position.x = halfD;
-      this.nonTrainingRingGroup.position.x = -halfD;
+      this.targetTrainingX = halfD;
+      this.targetNonTrainingX = -halfD;
     } else {
-      this.trainingRingGroup.position.x = -halfD;
-      this.nonTrainingRingGroup.position.x = halfD;
+      this.targetTrainingX = -halfD;
+      this.targetNonTrainingX = halfD;
     }
 
-    this.trialStartTime = Date.now();
-    this.awaitingResponse = true;
+    this.transitioning = true;
+    this.awaitingResponse = false;
     this.renderInstructions();
   }
 
@@ -374,9 +393,9 @@ export class VergenceTrainingExercise extends BaseExercise {
 
     const tex = this.textRenderer.renderToTexture({
       text,
-      width: 384,
-      height: 48,
-      fontSize: 24,
+      width: 512,
+      height: 72,
+      fontSize: 36,
       lineHeight: 1.0,
       color,
       background: 'rgba(0,0,0,0)',
@@ -415,8 +434,8 @@ export class VergenceTrainingExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 576,
-      fontSize: 28,
+      height: 640,
+      fontSize: 36,
       lineHeight: 1.5,
       color: '#d4d4dc',
       background: PANEL_BG,
@@ -430,7 +449,7 @@ export class VergenceTrainingExercise extends BaseExercise {
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.2, 0.68);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 0.78);
     this.instructionMesh!.position.set(0, RING_Y - 0.5, RING_Z + 0.1);
   }
 
@@ -451,8 +470,8 @@ export class VergenceTrainingExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 96,
-      fontSize: 22,
+      height: 130,
+      fontSize: 30,
       lineHeight: 1.5,
       color: '#8888aa',
       background: 'rgba(0,0,0,0)',

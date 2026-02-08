@@ -53,10 +53,10 @@ const INITIAL_DEPTH_RANGE = 0.20;    // Starting depth offset in meters
 const LEVEL_UP_DEPTH_RANGE = 0.15;   // Depth range when advancing a cue level
 const MIN_DEPTH_RANGE = 0.005;       // 5mm — fine stereo acuity
 const MAX_DEPTH_RANGE = 0.40;
-const STEP_DOWN_FACTOR = 0.8;        // Multiply depth by this after 3 correct
+const STEP_DOWN_FACTOR = 0.75;       // Multiply depth by this after 3 correct
 const STEP_UP_FACTOR = 1.4;          // Multiply depth by this after 1 incorrect
 const CORRECT_STREAK_TO_STEP = 3;    // 3-up staircase
-const CORRECT_TO_ADVANCE_LEVEL = 6;  // Advance cue level after this many correct
+const CORRECT_TO_ADVANCE_LEVEL = 4;  // Advance cue level after this many correct
 
 const PANEL_BG = '#111119';
 
@@ -120,6 +120,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
   private correctAtLevel: number = 0;
   private finestDepthPerLevel: number[] = [Infinity, Infinity, Infinity];
   private maxCueLevel: number = 0;
+  private startingCueLevel: number = 0;
 
   // Trial state
   private currentTrial: Trial | null = null;
@@ -136,6 +137,8 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   // Animation
   private rotationTime: number = 0;
+  private objectTransitioning: boolean = false;
+  private objectTransitionProgress: number = 0;
 
   private exitCallback: (() => void) | null = null;
 
@@ -148,17 +151,21 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.exitCallback = cb;
   }
 
+  setStartingCueLevel(level: number): void {
+    this.startingCueLevel = Math.max(0, Math.min(2, level));
+  }
+
   async setup(config: ExerciseConfig): Promise<void> {
     this.renderer = config.renderer;
     this.input = config.input;
     this.results = [];
     this.trialIndex = 0;
-    this.cueLevel = 0;
+    this.cueLevel = this.startingCueLevel;
     this.depthRange = INITIAL_DEPTH_RANGE;
     this.correctStreak = 0;
     this.correctAtLevel = 0;
     this.finestDepthPerLevel = [Infinity, Infinity, Infinity];
-    this.maxCueLevel = 0;
+    this.maxCueLevel = this.startingCueLevel;
 
     this.createEnvironment();
     this.createObjects();
@@ -217,6 +224,25 @@ export class DepthScaffoldingExercise extends BaseExercise {
     if (this.selectorMesh?.visible) {
       const pulse = 0.7 + 0.3 * Math.sin(this.rotationTime * 5);
       this.selectorMaterial!.opacity = pulse * 0.6;
+    }
+
+    // Smooth object scale-in
+    if (this.objectTransitioning) {
+      this.objectTransitionProgress = Math.min(1, this.objectTransitionProgress + dt * 4);
+      const t = this.objectTransitionProgress;
+      const eased = 1 - Math.pow(1 - t, 3); // Ease-out cubic
+
+      for (let i = 0; i < 3; i++) {
+        if (this.currentTrial) {
+          this.objectMeshes[i].scale.setScalar(this.currentTrial.sizes[i] * eased);
+        }
+      }
+
+      if (t >= 1) {
+        this.objectTransitioning = false;
+        this.trialStartTime = Date.now();
+        this.awaitingSelection = true;
+      }
     }
 
     // Level banner timeout
@@ -365,7 +391,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     if (!this.renderer) return;
 
     // Instructions (below objects)
-    const instructGeo = new THREE.PlaneGeometry(1.4, 0.14);
+    const instructGeo = new THREE.PlaneGeometry(1.4, 0.20);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -376,7 +402,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.renderer.addToBothEyes(this.instructionMesh);
 
     // Feedback (above objects)
-    const feedbackGeo = new THREE.PlaneGeometry(0.6, 0.06);
+    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -388,7 +414,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.renderer.addToBothEyes(this.feedbackMesh);
 
     // Level banner (center, appears on level transitions)
-    const bannerGeo = new THREE.PlaneGeometry(1.0, 0.25);
+    const bannerGeo = new THREE.PlaneGeometry(1.1, 0.32);
     this.levelBannerMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -449,8 +475,6 @@ export class DepthScaffoldingExercise extends BaseExercise {
   private startNextTrial(): void {
     this.currentTrial = this.generateTrial();
     this.selectedIndex = -1;
-    this.awaitingSelection = true;
-    this.trialStartTime = Date.now();
 
     // Position objects
     for (let i = 0; i < 3; i++) {
@@ -474,6 +498,11 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     // Hide selector
     this.selectorMesh!.visible = false;
+
+    // Start scale-in transition
+    this.objectTransitioning = true;
+    this.objectTransitionProgress = 0;
+    this.awaitingSelection = false;
 
     this.renderInstructions();
   }
@@ -580,9 +609,9 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     const tex = this.textRenderer.renderToTexture({
       text,
-      width: 384,
-      height: 48,
-      fontSize: 26,
+      width: 512,
+      height: 72,
+      fontSize: 36,
       lineHeight: 1.0,
       color,
       background: 'rgba(0,0,0,0)',
@@ -614,8 +643,8 @@ export class DepthScaffoldingExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: `Level ${levelNum}: ${name}\n${detail}`,
       width: 768,
-      height: 192,
-      fontSize: 28,
+      height: 230,
+      fontSize: 36,
       lineHeight: 1.6,
       color: '#d4d4dc',
       background: PANEL_BG,
@@ -663,8 +692,8 @@ export class DepthScaffoldingExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 512,
-      fontSize: 26,
+      height: 576,
+      fontSize: 34,
       lineHeight: 1.5,
       color: '#d4d4dc',
       background: PANEL_BG,
@@ -678,7 +707,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.2, 0.6);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 0.7);
     this.instructionMesh!.position.set(0, BASE_Y - 0.4, BASE_Z + 0.1);
   }
 
@@ -697,8 +726,8 @@ export class DepthScaffoldingExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1200,
-      height: 110,
-      fontSize: 22,
+      height: 140,
+      fontSize: 30,
       lineHeight: 1.6,
       color: '#8888aa',
       background: 'rgba(0,0,0,0)',

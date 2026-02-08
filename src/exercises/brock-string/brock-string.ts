@@ -41,14 +41,14 @@ interface BeadResult {
 // Bead positions — near is harder (more convergence needed)
 // Keep nearest bead at Z=-0.8 to avoid extreme vergence-accommodation conflict
 const BEADS: BeadDef[] = [
-  { color: 0xff4444, z: -3.5, label: 'Far (red)' },
-  { color: 0xddbb33, z: -2.0, label: 'Middle (yellow)' },
-  { color: 0x44cc66, z: -1.0, label: 'Near (green)' },
+  { color: 0xff4444, z: -2.5, label: 'Far (red)' },
+  { color: 0xddbb33, z: -1.5, label: 'Middle (yellow)' },
+  { color: 0x44cc66, z: -0.8, label: 'Near (green)' },
 ];
 
 const STRING_Y = 1.5;
 const STRING_START_Z = -0.4;
-const STRING_END_Z = -4.0;
+const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
 const SEQUENCES = 3; // Number of full bead sequences
 const PANEL_BG = '#111119';
@@ -87,6 +87,9 @@ export class BrockStringExercise extends BaseExercise {
   private feedbackTimeout: number = 0;
   private completed: boolean = false;
   private pulseTime: number = 0;
+  private waitingForStart: boolean = false;
+  private targetBeadZ: number = 0;
+  private highlightTransitioning: boolean = false;
 
   private exitCallback: (() => void) | null = null;
 
@@ -112,11 +115,18 @@ export class BrockStringExercise extends BaseExercise {
     this.createHighlightRing();
     this.createUI();
 
-    this.startTrial();
+    this.waitingForStart = true;
+    this.showNosePrompt();
 
     this.unsubInput = this.input.onAction((action) => {
       if (this.completed) {
         if (action === 'exit') this.exitCallback?.();
+        return;
+      }
+
+      if (this.waitingForStart && action === 'select') {
+        this.waitingForStart = false;
+        this.startTrial();
         return;
       }
 
@@ -141,6 +151,21 @@ export class BrockStringExercise extends BaseExercise {
 
   update(dt: number): void {
     this.pulseTime += dt;
+
+    // Smooth highlight ring transition
+    if (this.highlightTransitioning && this.highlightRing) {
+      const currentZ = this.highlightRing.position.z;
+      const newZ = THREE.MathUtils.lerp(currentZ, this.targetBeadZ, Math.min(1, 5.0 * dt));
+
+      this.highlightRing.position.z = newZ;
+
+      if (Math.abs(newZ - this.targetBeadZ) < 0.01) {
+        this.highlightRing.position.z = this.targetBeadZ;
+        this.highlightTransitioning = false;
+        this.trialStartTime = Date.now();
+        this.awaitingResponse = true;
+      }
+    }
 
     // Pulse the highlight ring
     if (this.highlightRing && this.awaitingResponse) {
@@ -289,7 +314,7 @@ export class BrockStringExercise extends BaseExercise {
     if (!this.renderer) return;
 
     // Instructions
-    const instructGeo = new THREE.PlaneGeometry(1.2, 0.12);
+    const instructGeo = new THREE.PlaneGeometry(1.4, 0.18);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -300,7 +325,7 @@ export class BrockStringExercise extends BaseExercise {
     this.renderer.addToBothEyes(this.instructionMesh);
 
     // Feedback
-    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.06);
+    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -317,13 +342,11 @@ export class BrockStringExercise extends BaseExercise {
   private startTrial(): void {
     const bead = BEADS[this.currentBeadIndex];
 
-    // Move highlight ring to current bead
-    this.highlightRing!.position.set(0, STRING_Y, bead.z);
+    this.targetBeadZ = bead.z;
     this.highlightMaterial!.color.set(bead.color);
     this.highlightRing!.visible = true;
-
-    this.trialStartTime = Date.now();
-    this.awaitingResponse = true;
+    this.highlightTransitioning = true;
+    this.awaitingResponse = false;
     this.pulseTime = 0;
 
     this.renderInstructions();
@@ -350,9 +373,9 @@ export class BrockStringExercise extends BaseExercise {
 
     const tex = this.textRenderer.renderToTexture({
       text,
-      width: 384,
-      height: 48,
-      fontSize: 24,
+      width: 512,
+      height: 72,
+      fontSize: 36,
       lineHeight: 1.0,
       color,
       background: 'rgba(0,0,0,0)',
@@ -404,8 +427,8 @@ export class BrockStringExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 512,
-      fontSize: 30,
+      height: 576,
+      fontSize: 36,
       lineHeight: 1.5,
       color: '#d4d4dc',
       background: PANEL_BG,
@@ -419,8 +442,26 @@ export class BrockStringExercise extends BaseExercise {
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.2, 0.6);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 0.7);
     this.instructionMesh!.position.set(0, STRING_Y - 0.45, -2.0);
+  }
+
+  private showNosePrompt(): void {
+    const tex = this.textRenderer.renderToTexture({
+      text: 'Position yourself so the string starts at your nose\nTrigger to begin',
+      width: 1024,
+      height: 130,
+      fontSize: 30,
+      lineHeight: 1.6,
+      color: '#bbbbcc',
+      background: 'rgba(0,0,0,0)',
+      align: 'center',
+      paddingX: 30,
+      paddingY: 16,
+    });
+
+    this.instructionMaterial!.map = tex;
+    this.instructionMaterial!.needsUpdate = true;
   }
 
   private renderInstructions(): void {
@@ -434,8 +475,8 @@ export class BrockStringExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 96,
-      fontSize: 22,
+      height: 130,
+      fontSize: 30,
       lineHeight: 1.5,
       color: '#8888aa',
       background: 'rgba(0,0,0,0)',

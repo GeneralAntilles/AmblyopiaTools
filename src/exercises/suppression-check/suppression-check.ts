@@ -33,11 +33,11 @@ interface TrialResult {
 
 const TOTAL_TRIALS = 10;
 
-// Dot visual settings
-const DOT_RADIUS = 0.04;
-const DOT_SPREAD = 0.15; // Distance from center to each dot
+// Dot visual settings — sized for Quest 3 (~25 PPD)
+const DOT_RADIUS = 0.06;
+const DOT_SPREAD = 0.2; // Distance from center to each dot
 const DOT_Y = 1.5;
-const DOT_Z = -2.0;
+const DOT_Z = -1.8;
 
 // Colors
 const RED = 0xdd3333;
@@ -56,7 +56,8 @@ export class SuppressionCheckExercise extends BaseExercise {
   private textRenderer: TextRenderer;
 
   // Scene objects
-  private dotGroup: THREE.Group = new THREE.Group();
+  private dotMeshes: THREE.Mesh[] = [];
+  private dotMaterials: THREE.MeshBasicMaterial[] = [];
   private envSphereMesh: THREE.Mesh | null = null;
   private envMaterial: THREE.MeshBasicMaterial | null = null;
   private instructionMesh: THREE.Mesh | null = null;
@@ -97,7 +98,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.createDots();
 
     // Instruction panel (both eyes)
-    const instructGeo = new THREE.PlaneGeometry(1.4, 0.18);
+    const instructGeo = new THREE.PlaneGeometry(1.4, 0.25);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -173,19 +174,16 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.unsubInput?.();
 
     if (this.renderer) {
-      this.renderer.removeFromScene(this.dotGroup);
+      for (const m of this.dotMeshes) this.renderer.removeFromScene(m);
       if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
       if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
     }
 
-    // Dispose dot geometries/materials
-    this.dotGroup.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose();
-        (obj.material as THREE.Material).dispose();
-      }
-    });
+    for (let i = 0; i < this.dotMeshes.length; i++) {
+      this.dotMeshes[i].geometry.dispose();
+      this.dotMaterials[i].dispose();
+    }
 
     this.envSphereMesh?.geometry.dispose();
     this.envMaterial?.map?.dispose();
@@ -255,28 +253,32 @@ export class SuppressionCheckExercise extends BaseExercise {
     const redDot = new THREE.Mesh(dotGeo.clone(), redMat);
     redDot.position.set(0, DOT_Y + DOT_SPREAD, DOT_Z);
     this.renderer.addToTrainingEye(redDot);
-    this.dotGroup.add(redDot);
+    this.dotMeshes.push(redDot);
+    this.dotMaterials.push(redMat);
 
     // Green dot — left — non-training eye only (Layer 2)
     const greenMat1 = new THREE.MeshBasicMaterial({ color: GREEN });
     const greenDot1 = new THREE.Mesh(dotGeo.clone(), greenMat1);
     greenDot1.position.set(-DOT_SPREAD, DOT_Y, DOT_Z);
     this.renderer.addToNonTrainingEye(greenDot1);
-    this.dotGroup.add(greenDot1);
+    this.dotMeshes.push(greenDot1);
+    this.dotMaterials.push(greenMat1);
 
     // Green dot — right — non-training eye only (Layer 2)
     const greenMat2 = new THREE.MeshBasicMaterial({ color: GREEN });
     const greenDot2 = new THREE.Mesh(dotGeo.clone(), greenMat2);
     greenDot2.position.set(DOT_SPREAD, DOT_Y, DOT_Z);
     this.renderer.addToNonTrainingEye(greenDot2);
-    this.dotGroup.add(greenDot2);
+    this.dotMeshes.push(greenDot2);
+    this.dotMaterials.push(greenMat2);
 
     // White dot — bottom — both eyes (Layer 0)
     const whiteMat = new THREE.MeshBasicMaterial({ color: WHITE });
     const whiteDot = new THREE.Mesh(dotGeo.clone(), whiteMat);
     whiteDot.position.set(0, DOT_Y - DOT_SPREAD, DOT_Z);
     this.renderer.addToBothEyes(whiteDot);
-    this.dotGroup.add(whiteDot);
+    this.dotMeshes.push(whiteDot);
+    this.dotMaterials.push(whiteMat);
   }
 
   // --- Trial Logic ---
@@ -317,8 +319,8 @@ export class SuppressionCheckExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: `Trial ${this.currentTrial}/${TOTAL_TRIALS}: ${labels[response]}`,
       width: 768,
-      height: 64,
-      fontSize: 24,
+      height: 80,
+      fontSize: 36,
       lineHeight: 1.0,
       color: colors[response],
       background: 'rgba(0,0,0,0)',
@@ -353,8 +355,8 @@ export class SuppressionCheckExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 512,
-      fontSize: 32,
+      height: 576,
+      fontSize: 38,
       lineHeight: 1.5,
       color: '#d4d4dc',
       background: PANEL_BG,
@@ -368,11 +370,11 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.2, 0.6);
-    this.instructionMesh!.position.set(0, DOT_Y - 0.5, DOT_Z + 0.1);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 0.75);
+    this.instructionMesh!.position.set(0, DOT_Y - 0.55, DOT_Z + 0.1);
 
     // Hide dots
-    this.dotGroup.visible = false;
+    for (const m of this.dotMeshes) m.visible = false;
     this.feedbackMesh!.visible = false;
   }
 
@@ -391,14 +393,14 @@ export class SuppressionCheckExercise extends BaseExercise {
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
       width: 1024,
-      height: 140,
-      fontSize: 24,
+      height: 180,
+      fontSize: 32,
       lineHeight: 1.5,
       color: '#8888aa',
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,
-      paddingY: 12,
+      paddingY: 16,
     });
 
     this.instructionMaterial!.map = tex;
