@@ -24,9 +24,12 @@ src/core/
   settings-store.ts    → IndexedDB persistence via idb
 src/exercises/
   base-exercise.ts     → Abstract: setup(), update(dt), teardown(), getSessionStats()
-  monocular-reading/   → Paginated text reader with chapter/EPUB support
+  monocular-reading/   → Paginated text reader with chapter/EPUB support + dichoptic mode
+  suppression-check/   → Worth 4-dot test (per-eye dots, 10-trial diagnostic)
+  brock-string/        → Virtual Brock string (convergence training, 3 beads at depth)
+  vergence-training/   → Binocular disparity rings (convergence/divergence staircase)
 src/ui/
-  launcher.ts          → 2D settings, file loading, exercise selection
+  launcher.ts          → 2D settings, file loading, exercise selection, session history
   vr-hud.ts            → In-VR status + timer (both-eye HUD)
   session-summary.ts   → Post-session stats display
 src/utils/
@@ -74,6 +77,8 @@ When `renderer.xr.enabled = true`, calling `renderer.render()` ignores any manua
 - Y axis: negative = up, positive = down
 - Use deadzone (0.2) and threshold (0.5) for flick detection
 - `selectstart` = trigger, `squeezestart` = grip
+- `gp.buttons[4]` = A/X button, `gp.buttons[5]` = B/Y button (edge-triggered in InputManager)
+- Input actions: `page-forward`, `page-back`, `chapter-next`, `chapter-prev`, `select`, `exit`, `button-a`, `button-b`
 
 ### Canvas Text Measurement
 `paginateByFit()` and `renderToTexture()` must use identical font/padding settings or pages won't match the rendered output. Both use the same `wordWrap()` function internally.
