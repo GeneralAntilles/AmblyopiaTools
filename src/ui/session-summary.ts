@@ -5,18 +5,20 @@
  */
 
 import type { SessionStats } from '../exercises/base-exercise';
+import type { ProgressionDecision } from '../core/contrast-progression';
 import { Analytics } from '../utils/analytics';
 
 export function showSessionSummary(
   container: HTMLElement,
-  stats: SessionStats
+  stats: SessionStats,
+  progression?: ProgressionDecision,
 ): void {
   container.style.display = 'block';
 
   const statsContainer = container.querySelector('#summary-stats');
   if (!statsContainer) return;
 
-  const rows: Array<{ label: string; value: string }> = [
+  const rows: Array<{ label: string; value: string; highlight?: boolean }> = [
     { label: 'Exercise', value: formatExerciseName(stats.exercise) },
     { label: 'Duration', value: Analytics.formatDuration(stats.durationMs) },
   ];
@@ -62,10 +64,21 @@ export function showSessionSummary(
     rows.push({ label: 'Avg Vergence Offset', value: `${stats.avgVergenceOffsetMm}mm` });
   }
 
+  // Contrast progression
+  if (progression?.shouldIncrement) {
+    const prev = Math.round(progression.previousContrast * 100);
+    const next = Math.round(progression.newContrast * 100);
+    rows.push({
+      label: 'Contrast Progression',
+      value: `${prev}% → ${next}%`,
+      highlight: true,
+    });
+  }
+
   statsContainer.innerHTML = rows
     .map(
       (r) =>
-        `<div class="stat-row"><span class="label">${r.label}</span><span class="value">${r.value}</span></div>`
+        `<div class="stat-row${r.highlight ? ' highlight' : ''}"><span class="label">${r.label}</span><span class="value">${r.value}</span></div>`
     )
     .join('');
 }

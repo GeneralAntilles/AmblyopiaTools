@@ -32,6 +32,8 @@ import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-ex
 import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
 import { TextRenderer } from '../../utils/text-renderer';
+import { createEnvironmentSphere } from '../../ui/vr-environment';
+import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 type SuppressionResult = 'fusion' | 'training-suppressed' | 'fellow-suppressed' | 'diplopia';
 
@@ -74,11 +76,6 @@ const GREEN = 0x44bb66;
 const WHITE = 0xeeeedd;
 const FIXATION_COLOR = 0x9688a0;
 const CROSSHAIR_COLOR = 0xdbb870;
-const PANEL_BG = '#16111e';
-
-// Timing
-const INTER_TRIAL_MS = 800;
-const FADE_IN_MS = 300;
 
 export class SuppressionCheckExercise extends BaseExercise {
   readonly name = 'Suppression Check';
@@ -159,18 +156,18 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.createCrosshair();
 
     // Instruction panel (both eyes)
-    const instructGeo = new THREE.PlaneGeometry(1.4, 0.25);
+    const instructGeo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       depthWrite: false,
     });
     this.instructionMesh = new THREE.Mesh(instructGeo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, DOT_Y - 0.4, -1.8);
+    this.instructionMesh.position.set(0, DOT_Y - 0.4, PANELS.INSTRUCTION_Z);
     this.renderer.addToBothEyes(this.instructionMesh);
 
     // Feedback panel (both eyes)
-    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.08);
+    const feedbackGeo = new THREE.PlaneGeometry(PANELS.FEEDBACK_WIDTH, PANELS.FEEDBACK_HEIGHT);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -313,7 +310,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     // Dot fade-in animation
     if (this.fadingIn) {
       const elapsed = now - this.fadeStartTime;
-      const t = Math.min(1, elapsed / FADE_IN_MS);
+      const t = Math.min(1, elapsed / TIMING.FADE_IN_MS);
       const alpha = 1 - (1 - t) * (1 - t); // ease-out
 
       if (this.redMaterial) this.redMaterial.opacity = alpha;
@@ -464,23 +461,9 @@ export class SuppressionCheckExercise extends BaseExercise {
   private createEnvironment(): void {
     if (!this.renderer) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#1a0f20');
-    gradient.addColorStop(0.35, '#160c1a');
-    gradient.addColorStop(0.7, '#0f0812');
-    gradient.addColorStop(1.0, '#0a060c');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 4, 512);
-
-    const envTexture = new THREE.CanvasTexture(canvas);
-    const sphereGeo = new THREE.SphereGeometry(40, 32, 16);
-    this.envMaterial = new THREE.MeshBasicMaterial({ map: envTexture, side: THREE.BackSide });
-    this.envSphereMesh = new THREE.Mesh(sphereGeo, this.envMaterial);
-    this.renderer.addToBothEyes(this.envSphereMesh);
+    const { mesh, material } = createEnvironmentSphere(this.renderer!);
+    this.envSphereMesh = mesh;
+    this.envMaterial = material;
   }
 
   private createDots(): void {
@@ -563,7 +546,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     }
 
     this.interTrialActive = true;
-    this.interTrialEndTime = Date.now() + INTER_TRIAL_MS;
+    this.interTrialEndTime = Date.now() + TIMING.INTER_TRIAL_MS;
     this.renderInstructions();
   }
 
@@ -683,7 +666,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       text: 'Point controller where you see the red dot\nAim to move  •  Trigger to confirm',
       width: 1024,
       height: 140,
-      fontSize: 30,
+      fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.6,
       color: '#dbb870',
       background: 'rgba(0,0,0,0)',
@@ -727,7 +710,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       text,
       width: 900,
       height: 80,
-      fontSize: 34,
+      fontSize: FONTS.FEEDBACK,
       lineHeight: 1.0,
       color: colors[response],
       background: 'rgba(0,0,0,0)',
@@ -740,7 +723,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.feedbackMaterial!.needsUpdate = true;
     this.feedbackMesh!.visible = true;
     this.showingFeedback = true;
-    this.feedbackTimeout = Date.now() + 1200;
+    this.feedbackTimeout = Date.now() + TIMING.FEEDBACK_MS;
   }
 
   private showResults(): void {
@@ -775,15 +758,15 @@ export class SuppressionCheckExercise extends BaseExercise {
       text: lines.join('\n'),
       width: 1024,
       height: 880,
-      fontSize: 32,
+      fontSize: FONTS.RESULTS,
       lineHeight: 1.4,
       color: '#e0d6cc',
-      background: PANEL_BG,
-      paddingX: 60,
-      paddingY: 50,
-      borderRadius: 32,
-      borderColor: '#362a40',
-      borderWidth: 3,
+      background: COLORS.PANEL_BG,
+      paddingX: PANELS.RESULTS_PADDING_X,
+      paddingY: PANELS.RESULTS_PADDING_Y,
+      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
+      borderColor: COLORS.PANEL_BORDER,
+      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
     });
 
     this.instructionMaterial!.map = tex;
@@ -822,13 +805,13 @@ export class SuppressionCheckExercise extends BaseExercise {
     const ctx = canvas.getContext('2d')!;
 
     // Background
-    ctx.fillStyle = PANEL_BG;
+    ctx.fillStyle = COLORS.PANEL_BG;
     ctx.beginPath();
     ctx.roundRect(0, 0, SIZE, SIZE, 24);
     ctx.fill();
 
     // Border
-    ctx.strokeStyle = '#362a40';
+    ctx.strokeStyle = COLORS.PANEL_BORDER;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.roundRect(1.5, 1.5, SIZE - 3, SIZE - 3, 24);
@@ -974,7 +957,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       text: lines.join('\n'),
       width: 1024,
       height: 180,
-      fontSize: 32,
+      fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.5,
       color: '#9688a0',
       background: 'rgba(0,0,0,0)',

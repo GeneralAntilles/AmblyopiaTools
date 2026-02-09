@@ -25,6 +25,8 @@ import type { InputManager } from '../../core/input-manager';
 import type { ContrastEngine } from '../../core/contrast-engine';
 import { TextRenderer, paginateByFit } from '../../utils/text-renderer';
 import { TextureCache } from '../../utils/texture-cache';
+import { createEnvironmentSphere } from '../../ui/vr-environment';
+import { COLORS } from '../../ui/vr-constants';
 
 export interface BookChapterData {
   title: string;
@@ -58,11 +60,8 @@ const PANEL_W = 1.7;
 const PANEL_H = 1.5;
 const PANEL_Y = 1.4;
 const PANEL_Z = -2.0;
-const PANEL_BG = '#16111e';
-const PANEL_BORDER = '#362a40';
 const PANEL_BORDER_W = 4;
 const PANEL_RADIUS = 48;
-const TEXT_COLOR = '#e0d6cc';
 
 // Parsed RGB values for color interpolation
 const BG_RGB = { r: 0x16, g: 0x11, b: 0x1e };
@@ -308,26 +307,9 @@ export class MonocularReadingExercise extends BaseExercise {
   private createEnvironment(): void {
     if (!this.renderer) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#1a0f20');
-    gradient.addColorStop(0.35, '#160c1a');
-    gradient.addColorStop(0.7, '#0f0812');
-    gradient.addColorStop(1.0, '#0a060c');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 4, 512);
-
-    const envTexture = new THREE.CanvasTexture(canvas);
-    const sphereGeo = new THREE.SphereGeometry(40, 32, 16);
-    this.envMaterial = new THREE.MeshBasicMaterial({
-      map: envTexture,
-      side: THREE.BackSide,
-    });
-    this.envSphereMesh = new THREE.Mesh(sphereGeo, this.envMaterial);
-    this.renderer.addToBothEyes(this.envSphereMesh);
+    const env = createEnvironmentSphere(this.renderer);
+    this.envSphereMesh = env.mesh;
+    this.envMaterial = env.material;
   }
 
   private createGlow(): void {
@@ -458,12 +440,12 @@ export class MonocularReadingExercise extends BaseExercise {
         fontSize: this.settings.fontSize,
         lineHeight: this.settings.lineHeight,
         fontFamily: this.settings.fontFamily,
-        color: TEXT_COLOR,
-        background: PANEL_BG,
+        color: COLORS.TEXT_PRIMARY,
+        background: COLORS.PANEL_BG,
         paddingX: 100,
         paddingY: 100,
         borderRadius: PANEL_RADIUS,
-        borderColor: PANEL_BORDER,
+        borderColor: COLORS.PANEL_BORDER,
         borderWidth: PANEL_BORDER_W,
       });
       this.textureCache.set(cacheKey, texture);
@@ -496,11 +478,11 @@ export class MonocularReadingExercise extends BaseExercise {
             lineHeight: this.settings.lineHeight,
             fontFamily: this.settings.fontFamily,
             color: dimColor,
-            background: PANEL_BG,
+            background: COLORS.PANEL_BG,
             paddingX: 100,
             paddingY: 100,
             borderRadius: PANEL_RADIUS,
-            borderColor: PANEL_BORDER,
+            borderColor: COLORS.PANEL_BORDER,
             borderWidth: PANEL_BORDER_W,
           });
           this.textureCache.set(cacheKey, texture);
@@ -508,7 +490,7 @@ export class MonocularReadingExercise extends BaseExercise {
         break;
       }
       case 'fixation':
-        texture = this.textRenderer.renderFixationCross(2048, '#3a3a50', PANEL_BG);
+        texture = this.textRenderer.renderFixationCross(2048, '#3a3a50', COLORS.PANEL_BG);
         break;
       case 'pattern':
         texture = this.textRenderer.renderNoisePattern();
@@ -517,9 +499,9 @@ export class MonocularReadingExercise extends BaseExercise {
       default:
         texture = this.textRenderer.renderToTexture({
           text: '',
-          background: PANEL_BG,
+          background: COLORS.PANEL_BG,
           borderRadius: PANEL_RADIUS,
-          borderColor: PANEL_BORDER,
+          borderColor: COLORS.PANEL_BORDER,
           borderWidth: PANEL_BORDER_W,
         });
         break;

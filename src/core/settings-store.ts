@@ -21,6 +21,22 @@ export interface UserSettings {
   lastExercise: string;
   contrastDominant: number;
   contrastAmblyopic: number;
+  // Contrast progression
+  contrastProgressionEnabled: boolean;
+  contrastAutoIncrement: number;
+  contrastProgressionHistory: Array<{
+    timestamp: number;
+    contrast: number;
+    exercise: string;
+    fusionRate?: number;
+    auto: boolean;
+  }>;
+  // Setup
+  setupCompleted: boolean;
+  setupCompletedAt: number | null;
+  // Guided programs groundwork
+  exerciseOrder: string[];
+  lastCompletedExerciseIndex: number;
 }
 
 export interface SessionRecord {
@@ -41,6 +57,13 @@ const DEFAULT_SETTINGS: UserSettings = {
   lastExercise: 'monocular-reading',
   contrastDominant: 0.2,
   contrastAmblyopic: 1.0,
+  contrastProgressionEnabled: true,
+  contrastAutoIncrement: 0.02,
+  contrastProgressionHistory: [],
+  setupCompleted: false,
+  setupCompletedAt: null,
+  exerciseOrder: ['suppression-check', 'monocular-reading', 'brock-string', 'vergence-training', 'depth-scaffolding'],
+  lastCompletedExerciseIndex: -1,
 };
 
 export class SettingsStore {

@@ -28,6 +28,8 @@ import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-ex
 import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
 import { TextRenderer } from '../../utils/text-renderer';
+import { createEnvironmentSphere } from '../../ui/vr-environment';
+import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 interface BeadDef {
   color: number;
@@ -54,7 +56,6 @@ const STRING_START_Z = -0.4;
 const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
 const SEQUENCES = 3;
-const PANEL_BG = '#16111e';
 const STRING_SEGMENTS = 32;  // Curve resolution
 const STRING_SAG = 0.06;     // Max droop in meters per meter of length
 
@@ -359,24 +360,9 @@ export class BrockStringExercise extends BaseExercise {
 
   private createEnvironment(): void {
     if (!this.renderer) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#1a0f20');
-    gradient.addColorStop(0.35, '#160c1a');
-    gradient.addColorStop(0.7, '#0f0812');
-    gradient.addColorStop(1.0, '#0a060c');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 4, 512);
-
-    const envTexture = new THREE.CanvasTexture(canvas);
-    const sphereGeo = new THREE.SphereGeometry(40, 32, 16);
-    this.envMaterial = new THREE.MeshBasicMaterial({ map: envTexture, side: THREE.BackSide });
-    this.envSphereMesh = new THREE.Mesh(sphereGeo, this.envMaterial);
-    this.renderer.addToBothEyes(this.envSphereMesh);
+    const { mesh, material } = createEnvironmentSphere(this.renderer);
+    this.envSphereMesh = mesh;
+    this.envMaterial = material;
   }
 
   private createString(): void {
@@ -465,24 +451,24 @@ export class BrockStringExercise extends BaseExercise {
   private createUI(): void {
     if (!this.renderer) return;
 
-    const instructGeo = new THREE.PlaneGeometry(1.4, 0.18);
+    const instructGeo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       depthWrite: false,
     });
     this.instructionMesh = new THREE.Mesh(instructGeo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, STRING_Y - 0.35, -2.0);
+    this.instructionMesh.position.set(0, CONTENT_Y + PANELS.INSTRUCTION_Y_OFFSET, -2.0);
     this.renderer.addToBothEyes(this.instructionMesh);
 
-    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
+    const feedbackGeo = new THREE.PlaneGeometry(PANELS.FEEDBACK_WIDTH, PANELS.FEEDBACK_HEIGHT);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       depthWrite: false,
     });
     this.feedbackMesh = new THREE.Mesh(feedbackGeo, this.feedbackMaterial);
-    this.feedbackMesh.position.set(0, STRING_Y + 0.35, -2.0);
+    this.feedbackMesh.position.set(0, CONTENT_Y + PANELS.FEEDBACK_Y_OFFSET, -2.0);
     this.feedbackMesh.visible = false;
     this.renderer.addToBothEyes(this.feedbackMesh);
   }
@@ -577,13 +563,13 @@ export class BrockStringExercise extends BaseExercise {
 
   private showFeedbackText(fused: boolean): void {
     const text = fused ? 'Fused' : 'Double';
-    const color = fused ? '#5cb87a' : '#c47a5c';
+    const color = fused ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE;
 
     const tex = this.textRenderer.renderToTexture({
       text,
       width: 512,
       height: 72,
-      fontSize: 36,
+      fontSize: FONTS.FEEDBACK,
       lineHeight: 1.0,
       color,
       background: 'rgba(0,0,0,0)',
@@ -596,7 +582,7 @@ export class BrockStringExercise extends BaseExercise {
     this.feedbackMaterial!.needsUpdate = true;
     this.feedbackMesh!.visible = true;
     this.showingFeedback = true;
-    this.feedbackTimeout = Date.now() + 800;
+    this.feedbackTimeout = Date.now() + TIMING.FEEDBACK_MS;
   }
 
   private advanceTrial(): void {
@@ -636,15 +622,15 @@ export class BrockStringExercise extends BaseExercise {
       text: lines.join('\n'),
       width: 1024,
       height: 576,
-      fontSize: 36,
+      fontSize: FONTS.RESULTS,
       lineHeight: 1.5,
-      color: '#e0d6cc',
-      background: PANEL_BG,
-      paddingX: 60,
-      paddingY: 50,
-      borderRadius: 32,
-      borderColor: '#362a40',
-      borderWidth: 3,
+      color: COLORS.TEXT_PRIMARY,
+      background: COLORS.PANEL_BG,
+      paddingX: PANELS.RESULTS_PADDING_X,
+      paddingY: PANELS.RESULTS_PADDING_Y,
+      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
+      borderColor: COLORS.PANEL_BORDER,
+      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
     });
 
     this.instructionMaterial!.map = tex;
@@ -661,7 +647,7 @@ export class BrockStringExercise extends BaseExercise {
       height: 130,
       fontSize: 30,
       lineHeight: 1.6,
-      color: '#c0b8a8',
+      color: COLORS.TEXT_WARM,
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,
@@ -684,9 +670,9 @@ export class BrockStringExercise extends BaseExercise {
       text: lines.join('\n'),
       width: 1024,
       height: 130,
-      fontSize: 30,
+      fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.5,
-      color: '#9688a0',
+      color: COLORS.TEXT_INSTRUCTION,
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

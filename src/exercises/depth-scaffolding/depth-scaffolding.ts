@@ -34,6 +34,8 @@ import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-ex
 import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
 import { TextRenderer } from '../../utils/text-renderer';
+import { createEnvironmentSphere } from '../../ui/vr-environment';
+import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 // --- Constants ---
 
@@ -46,7 +48,7 @@ const BASE_Z = -2.0;
 const OBJECT_RADIUS = 0.06;
 
 // Object colors
-const COLORS = [0xc9935a, 0x5ac98a, 0xc95a8a]; // Amber, Emerald, Rose
+const OBJECT_COLORS = [0xc9935a, 0x5ac98a, 0xc95a8a]; // Amber, Emerald, Rose
 
 // Staircase parameters
 const INITIAL_DEPTH_RANGE = 0.20;    // Starting depth offset in meters
@@ -57,8 +59,6 @@ const STEP_DOWN_FACTOR = 0.75;       // Multiply depth by this after 3 correct
 const STEP_UP_FACTOR = 1.4;          // Multiply depth by this after 1 incorrect
 const CORRECT_STREAK_TO_STEP = 3;    // 3-up staircase
 const CORRECT_TO_ADVANCE_LEVEL = 4;  // Advance cue level after this many correct
-
-const PANEL_BG = '#16111e';
 
 // Cue level names
 const CUE_LEVEL_NAMES = [
@@ -334,24 +334,9 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   private createEnvironment(): void {
     if (!this.renderer) return;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d')!;
-    const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-    gradient.addColorStop(0.0, '#1a0f20');
-    gradient.addColorStop(0.35, '#160c1a');
-    gradient.addColorStop(0.7, '#0f0812');
-    gradient.addColorStop(1.0, '#0a060c');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 4, 512);
-
-    const envTexture = new THREE.CanvasTexture(canvas);
-    const sphereGeo = new THREE.SphereGeometry(40, 32, 16);
-    this.envMaterial = new THREE.MeshBasicMaterial({ map: envTexture, side: THREE.BackSide });
-    this.envSphereMesh = new THREE.Mesh(sphereGeo, this.envMaterial);
-    this.renderer.addToBothEyes(this.envSphereMesh);
+    const { mesh, material } = createEnvironmentSphere(this.renderer);
+    this.envSphereMesh = mesh;
+    this.envMaterial = material;
   }
 
   private createObjects(): void {
@@ -361,7 +346,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     const geo = new THREE.IcosahedronGeometry(OBJECT_RADIUS, 1);
 
     for (let i = 0; i < 3; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: COLORS[i] });
+      const mat = new THREE.MeshBasicMaterial({ color: OBJECT_COLORS[i] });
       const mesh = new THREE.Mesh(geo.clone(), mat);
       mesh.position.set(POSITIONS_X[i], BASE_Y, BASE_Z);
       mesh.visible = false;
@@ -391,25 +376,25 @@ export class DepthScaffoldingExercise extends BaseExercise {
     if (!this.renderer) return;
 
     // Instructions (below objects)
-    const instructGeo = new THREE.PlaneGeometry(1.4, 0.20);
+    const instructGeo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
     this.instructionMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       depthWrite: false,
     });
     this.instructionMesh = new THREE.Mesh(instructGeo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, BASE_Y - 0.4, BASE_Z);
+    this.instructionMesh.position.set(0, CONTENT_Y + PANELS.INSTRUCTION_Y_OFFSET, BASE_Z);
     this.renderer.addToBothEyes(this.instructionMesh);
 
     // Feedback (above objects)
-    const feedbackGeo = new THREE.PlaneGeometry(0.8, 0.12);
+    const feedbackGeo = new THREE.PlaneGeometry(PANELS.FEEDBACK_WIDTH, PANELS.FEEDBACK_HEIGHT);
     this.feedbackMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       depthWrite: false,
     });
     this.feedbackMesh = new THREE.Mesh(feedbackGeo, this.feedbackMaterial);
-    this.feedbackMesh.position.set(0, BASE_Y + 0.35, BASE_Z);
+    this.feedbackMesh.position.set(0, CONTENT_Y + PANELS.FEEDBACK_Y_OFFSET, BASE_Z);
     this.feedbackMesh.visible = false;
     this.renderer.addToBothEyes(this.feedbackMesh);
 
@@ -487,7 +472,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
       mesh.rotation.set(0, 0, 0); // Reset rotation
 
       // Apply brightness via color
-      const baseColor = new THREE.Color(COLORS[i]);
+      const baseColor = new THREE.Color(OBJECT_COLORS[i]);
       const b = this.currentTrial.brightnesses[i];
       mat.color.setRGB(
         Math.min(1, baseColor.r * b),
@@ -605,13 +590,13 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   private showFeedbackText(correct: boolean): void {
     const text = correct ? 'Correct' : 'Incorrect';
-    const color = correct ? '#5cb87a' : '#c45c5c';
+    const color = correct ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE;
 
     const tex = this.textRenderer.renderToTexture({
       text,
-      width: 512,
-      height: 72,
-      fontSize: 36,
+      width: CANVAS.FEEDBACK_WIDTH,
+      height: CANVAS.FEEDBACK_HEIGHT,
+      fontSize: FONTS.FEEDBACK,
       lineHeight: 1.0,
       color,
       background: 'rgba(0,0,0,0)',
@@ -624,7 +609,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.feedbackMaterial!.needsUpdate = true;
     this.feedbackMesh!.visible = true;
     this.showingFeedback = true;
-    this.feedbackTimeout = Date.now() + 800;
+    this.feedbackTimeout = Date.now() + TIMING.FEEDBACK_MS;
   }
 
   private showLevelBanner(level: number): void {
@@ -646,13 +631,13 @@ export class DepthScaffoldingExercise extends BaseExercise {
       height: 230,
       fontSize: 36,
       lineHeight: 1.6,
-      color: '#e0d6cc',
-      background: PANEL_BG,
+      color: COLORS.TEXT_PRIMARY,
+      background: COLORS.PANEL_BG,
       paddingX: 40,
       paddingY: 40,
-      borderRadius: 24,
-      borderColor: '#362a40',
-      borderWidth: 3,
+      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
+      borderColor: COLORS.PANEL_BORDER,
+      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
       align: 'center',
     });
 
@@ -691,23 +676,23 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
-      width: 1024,
+      width: CANVAS.RESULTS_WIDTH,
       height: 576,
-      fontSize: 34,
+      fontSize: FONTS.RESULTS,
       lineHeight: 1.5,
-      color: '#e0d6cc',
-      background: PANEL_BG,
-      paddingX: 60,
-      paddingY: 50,
-      borderRadius: 32,
-      borderColor: '#362a40',
-      borderWidth: 3,
+      color: COLORS.TEXT_PRIMARY,
+      background: COLORS.PANEL_BG,
+      paddingX: PANELS.RESULTS_PADDING_X,
+      paddingY: PANELS.RESULTS_PADDING_Y,
+      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
+      borderColor: COLORS.PANEL_BORDER,
+      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
     });
 
     this.instructionMaterial!.map = tex;
     this.instructionMaterial!.needsUpdate = true;
     this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 0.7);
+    this.instructionMesh!.geometry = new THREE.PlaneGeometry(PANELS.RESULTS_WIDTH, 0.7);
     this.instructionMesh!.position.set(0, BASE_Y - 0.4, BASE_Z + 0.1);
   }
 
@@ -725,11 +710,11 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     const tex = this.textRenderer.renderToTexture({
       text: lines.join('\n'),
-      width: 1200,
-      height: 140,
-      fontSize: 30,
+      width: CANVAS.INSTRUCTION_WIDTH,
+      height: CANVAS.INSTRUCTION_HEIGHT,
+      fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.6,
-      color: '#9688a0',
+      color: COLORS.TEXT_INSTRUCTION,
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

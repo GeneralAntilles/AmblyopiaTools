@@ -14,6 +14,7 @@ import { Analytics } from './utils/analytics';
 import { Launcher } from './ui/launcher';
 import { VRHud } from './ui/vr-hud';
 import { showSessionSummary } from './ui/session-summary';
+import { evaluateProgression, type ProgressionDecision } from './core/contrast-progression';
 import { MonocularReadingExercise } from './exercises/monocular-reading/monocular-reading';
 import { SuppressionCheckExercise } from './exercises/suppression-check/suppression-check';
 import { BrockStringExercise } from './exercises/brock-string/brock-string';
@@ -160,10 +161,44 @@ async function handleSessionEnded(): Promise<void> {
   xrManager = null;
   lastFrameTime = 0;
 
+  // Evaluate contrast progression
+  let progression: ProgressionDecision | undefined;
+  if (stats) {
+    const currentSettings = await settingsStore.getSettings();
+    if (currentSettings.contrastProgressionEnabled) {
+      progression = evaluateProgression(stats, currentSettings.contrastDominant, {
+        increment: currentSettings.contrastAutoIncrement,
+      });
+
+      if (progression.shouldIncrement) {
+        await settingsStore.saveSettings({
+          contrastDominant: progression.newContrast,
+          contrastProgressionHistory: [
+            ...currentSettings.contrastProgressionHistory.slice(-99),
+            {
+              timestamp: Date.now(),
+              contrast: progression.newContrast,
+              exercise: stats.exercise,
+              fusionRate: (stats.fusionRate as number) ?? undefined,
+              auto: true,
+            },
+          ],
+        });
+      }
+    }
+
+    // Track exercise order index for recommender
+    const latestSettings = await settingsStore.getSettings();
+    const exerciseIdx = latestSettings.exerciseOrder.indexOf(stats.exercise);
+    if (exerciseIdx >= 0) {
+      await settingsStore.saveSetting('lastCompletedExerciseIndex', exerciseIdx);
+    }
+  }
+
   // Show session summary
   if (stats) {
     const summaryEl = document.getElementById('session-summary')!;
-    showSessionSummary(summaryEl, stats);
+    showSessionSummary(summaryEl, stats, progression);
   }
 
   vrBtn.disabled = false;

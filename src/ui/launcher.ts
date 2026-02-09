@@ -119,10 +119,23 @@ export class Launcher {
     const settings = await this.store.getSettings();
     this.selectedExercise = settings.lastExercise || 'monocular-reading';
 
+    // Check for first-time user
+    if (!settings.setupCompleted) {
+      // Auto-detect existing users: if they have session history, skip wizard
+      const history = await this.store.getSessionHistory(undefined, 1);
+      if (history.length > 0) {
+        await this.store.saveSettings({ setupCompleted: true, setupCompletedAt: Date.now() });
+      } else {
+        await this.showSetupWizard(settings);
+      }
+    }
+
     this.renderExerciseCards();
     this.bindSettings(settings);
     this.bindEnterVR();
     this.bindFileUpload();
+    this.bindTherapySettings(settings);
+    this.updateContrastProgress(settings.contrastDominant);
 
     // Load saved reading text
     const savedText = await this.store.getReadingText();
@@ -131,12 +144,29 @@ export class Launcher {
       if (textarea) textarea.value = savedText;
     }
 
-    // Render session history
+    // Render session history with recommendations
     await this.renderSessionHistory();
   }
 
   /** Refresh session history display (call after session ends too) */
   async renderSessionHistory(): Promise<void> {
+    // Refresh contrast progress bar
+    const settings = await this.store.getSettings();
+    this.updateContrastProgress(settings.contrastDominant);
+
+    // Add recommended badge to exercise cards
+    const rec = this.getRecommendedExercise(settings);
+    document.querySelectorAll('.exercise-card .recommended-badge').forEach((b) => b.remove());
+    if (rec) {
+      const card = document.querySelector(`.exercise-card[data-exercise="${rec}"]`);
+      if (card) {
+        const h3 = card.querySelector('h3');
+        if (h3 && !h3.querySelector('.recommended-badge')) {
+          h3.insertAdjacentHTML('beforeend', '<span class="recommended-badge">Recommended</span>');
+        }
+      }
+    }
+
     const container = document.getElementById('session-history');
     if (!container) return;
 
@@ -459,6 +489,128 @@ export class Launcher {
 
   getSelectedChapterIndex(): number {
     return this.selectedChapterIndex;
+  }
+
+  private bindTherapySettings(settings: UserSettings): void {
+    // Auto-progression toggle
+    const toggle = document.getElementById('auto-progression') as HTMLInputElement | null;
+    if (toggle) {
+      toggle.checked = settings.contrastProgressionEnabled;
+      toggle.addEventListener('change', () => {
+        this.store.saveSetting('contrastProgressionEnabled', toggle.checked);
+      });
+    }
+  }
+
+  private updateContrastProgress(contrast: number): void {
+    const pct = Math.round(contrast * 100);
+    const label = document.getElementById('contrast-current');
+    const bar = document.getElementById('contrast-bar-fill');
+    if (label) label.textContent = `${pct}%`;
+    if (bar) bar.style.width = `${pct}%`;
+
+    // Also update the contrast slider if visible
+    const slider = document.getElementById('contrast-dominant') as HTMLInputElement | null;
+    const sliderLabel = document.getElementById('contrast-dominant-value');
+    if (slider) slider.value = String(pct);
+    if (sliderLabel) sliderLabel.textContent = `${pct}%`;
+  }
+
+  private async showSetupWizard(settings: UserSettings): Promise<void> {
+    const overlay = document.getElementById('setup-wizard');
+    const card = document.getElementById('wizard-card');
+    if (!overlay || !card) return;
+
+    overlay.classList.remove('hidden');
+
+    let selectedEye: 'left' | 'right' = settings.trainingEye;
+
+    return new Promise<void>((resolve) => {
+      const showStep1 = () => {
+        card.innerHTML = `
+          <h2>Welcome to OpenVisionTherapy</h2>
+          <p>An open-source VR vision therapy platform for amblyopia. This app provides exercises
+          that use your headset's stereoscopic display to train binocular vision.</p>
+          <p style="color:#aa9;font-size:12px;">Not a medical device. Use under guidance of a qualified practitioner.</p>
+          <button class="wizard-btn wizard-btn-primary" id="wizard-next">Get Started</button>
+        `;
+        document.getElementById('wizard-next')!.addEventListener('click', showStep2);
+      };
+
+      const showStep2 = () => {
+        card.innerHTML = `
+          <h2>Which is your weaker eye?</h2>
+          <p>Select your amblyopic (training) eye. This is the eye that exercises will target.
+          If you're unsure, your eye doctor can tell you.</p>
+          <div class="wizard-eye-btns">
+            <button class="wizard-eye-btn ${selectedEye === 'left' ? 'selected' : ''}" data-eye="left">Left Eye</button>
+            <button class="wizard-eye-btn ${selectedEye === 'right' ? 'selected' : ''}" data-eye="right">Right Eye</button>
+          </div>
+          <button class="wizard-btn wizard-btn-primary" id="wizard-next">Continue</button>
+        `;
+
+        card.querySelectorAll('.wizard-eye-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            selectedEye = (btn as HTMLElement).dataset.eye as 'left' | 'right';
+            card.querySelectorAll('.wizard-eye-btn').forEach((b) => b.classList.remove('selected'));
+            btn.classList.add('selected');
+          });
+        });
+
+        document.getElementById('wizard-next')!.addEventListener('click', showStep3);
+      };
+
+      const showStep3 = () => {
+        card.innerHTML = `
+          <h2>Ready to begin</h2>
+          <p>We recommend running a <strong>Suppression Check</strong> first to establish your baseline.
+          It takes about 2 minutes.</p>
+          <button class="wizard-btn wizard-btn-primary" id="wizard-baseline">Run Suppression Check</button>
+          <button class="wizard-btn wizard-btn-secondary" id="wizard-skip">Skip for Now</button>
+        `;
+
+        const finish = async (exercise?: string) => {
+          await this.store.saveSettings({
+            trainingEye: selectedEye,
+            setupCompleted: true,
+            setupCompletedAt: Date.now(),
+          });
+          if (exercise) {
+            this.selectedExercise = exercise;
+            await this.store.saveSetting('lastExercise', exercise);
+          }
+          overlay.classList.add('hidden');
+          resolve();
+        };
+
+        document.getElementById('wizard-baseline')!.addEventListener('click', () => finish('suppression-check'));
+        document.getElementById('wizard-skip')!.addEventListener('click', () => finish());
+      };
+
+      showStep1();
+    });
+  }
+
+  /**
+   * Simple exercise recommender based on session history.
+   * Returns the exercise ID to recommend, or null.
+   */
+  private getRecommendedExercise(settings: UserSettings): string | null {
+    const order = settings.exerciseOrder;
+    if (!order || order.length === 0) return null;
+
+    // Recommend next in the configured order (round-robin)
+    const nextIndex = (settings.lastCompletedExerciseIndex + 1) % order.length;
+    const exerciseId = order[nextIndex];
+
+    // Only recommend available exercises
+    const ex = EXERCISES.find((e) => e.id === exerciseId);
+    if (!ex?.available) return null;
+
+    // Don't recommend what's already selected
+    if (exerciseId === this.selectedExercise) return null;
+
+    return exerciseId;
   }
 
   getCurrentSettings(): Record<string, unknown> {
