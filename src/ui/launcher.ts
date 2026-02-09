@@ -531,7 +531,7 @@ export class Launcher {
           <h2>Welcome to OpenVisionTherapy</h2>
           <p>An open-source VR vision therapy platform for amblyopia. This app provides exercises
           that use your headset's stereoscopic display to train binocular vision.</p>
-          <p style="color:#aa9;font-size:12px;">Not a medical device. Use under guidance of a qualified practitioner.</p>
+          <p style="color:var(--text-tertiary);font-size:12px;">Not a medical device. Use under guidance of a qualified practitioner.</p>
           <button class="wizard-btn wizard-btn-primary" id="wizard-next">Get Started</button>
         `;
         document.getElementById('wizard-next')!.addEventListener('click', showStep2);
