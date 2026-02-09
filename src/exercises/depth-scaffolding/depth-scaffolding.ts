@@ -291,10 +291,13 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.envMaterial?.map?.dispose();
     this.envMaterial?.dispose();
     this.instructionMesh?.geometry.dispose();
+    this.instructionMaterial?.map?.dispose();
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
+    this.feedbackMaterial?.map?.dispose();
     this.feedbackMaterial?.dispose();
     this.levelBannerMesh?.geometry.dispose();
+    this.levelBannerMaterial?.map?.dispose();
     this.levelBannerMaterial?.dispose();
 
     this.renderer = null;

@@ -179,7 +179,7 @@ async function handleSessionEnded(): Promise<void> {
               timestamp: Date.now(),
               contrast: progression.newContrast,
               exercise: stats.exercise,
-              fusionRate: (stats.fusionRate as number) ?? undefined,
+              fusionRate: stats.fusionRate as number | undefined,
               auto: true,
             },
           ],
@@ -188,8 +188,10 @@ async function handleSessionEnded(): Promise<void> {
     }
 
     // Track exercise order index for recommender
+    // Map dichoptic-reading back to monocular-reading for order tracking
     const latestSettings = await settingsStore.getSettings();
-    const exerciseIdx = latestSettings.exerciseOrder.indexOf(stats.exercise);
+    const exerciseName = stats.exercise === 'dichoptic-reading' ? 'monocular-reading' : stats.exercise;
+    const exerciseIdx = latestSettings.exerciseOrder.indexOf(exerciseName);
     if (exerciseIdx >= 0) {
       await settingsStore.saveSetting('lastCompletedExerciseIndex', exerciseIdx);
     }

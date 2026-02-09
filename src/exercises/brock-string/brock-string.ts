@@ -29,7 +29,7 @@ import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
 import { TextRenderer } from '../../utils/text-renderer';
 import { createEnvironmentSphere } from '../../ui/vr-environment';
-import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
+import { COLORS, FONTS, PANELS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 interface BeadDef {
   color: number;
@@ -313,8 +313,10 @@ export class BrockStringExercise extends BaseExercise {
     this.envMaterial?.map?.dispose();
     this.envMaterial?.dispose();
     this.instructionMesh?.geometry.dispose();
+    this.instructionMaterial?.map?.dispose();
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
+    this.feedbackMaterial?.map?.dispose();
     this.feedbackMaterial?.dispose();
     this.guideMesh?.geometry.dispose();
     this.guideMaterial?.dispose();

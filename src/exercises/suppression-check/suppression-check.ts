@@ -33,7 +33,7 @@ import type { PerEyeRenderer } from '../../core/per-eye-renderer';
 import type { InputManager } from '../../core/input-manager';
 import { TextRenderer } from '../../utils/text-renderer';
 import { createEnvironmentSphere } from '../../ui/vr-environment';
-import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
+import { COLORS, FONTS, PANELS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 type SuppressionResult = 'fusion' | 'training-suppressed' | 'fellow-suppressed' | 'diplopia';
 
@@ -361,8 +361,10 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.envMaterial?.map?.dispose();
     this.envMaterial?.dispose();
     this.instructionMesh?.geometry.dispose();
+    this.instructionMaterial?.map?.dispose();
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
+    this.feedbackMaterial?.map?.dispose();
     this.feedbackMaterial?.dispose();
     this.scatterMesh?.geometry.dispose();
     this.scatterMaterial?.map?.dispose();
@@ -461,7 +463,7 @@ export class SuppressionCheckExercise extends BaseExercise {
   private createEnvironment(): void {
     if (!this.renderer) return;
 
-    const { mesh, material } = createEnvironmentSphere(this.renderer!);
+    const { mesh, material } = createEnvironmentSphere(this.renderer);
     this.envSphereMesh = mesh;
     this.envMaterial = material;
   }
@@ -668,7 +670,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       height: 140,
       fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.6,
-      color: '#dbb870',
+      color: COLORS.TEXT_SPECIAL,
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,
@@ -694,10 +696,10 @@ export class SuppressionCheckExercise extends BaseExercise {
     };
 
     const colors: Record<SuppressionResult, string> = {
-      fusion: '#5cb87a',
-      'fellow-suppressed': '#c49a5c',
-      'training-suppressed': '#c49a5c',
-      diplopia: '#c47a5c',
+      fusion: COLORS.FEEDBACK_SUCCESS,
+      'fellow-suppressed': COLORS.FEEDBACK_WARNING,
+      'training-suppressed': COLORS.FEEDBACK_WARNING,
+      diplopia: COLORS.FEEDBACK_FAILURE,
     };
 
     const distLabel = condition.distanceLabel.charAt(0).toUpperCase() + condition.distanceLabel.slice(1);
@@ -760,7 +762,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       height: 880,
       fontSize: FONTS.RESULTS,
       lineHeight: 1.4,
-      color: '#e0d6cc',
+      color: COLORS.TEXT_PRIMARY,
       background: COLORS.PANEL_BG,
       paddingX: PANELS.RESULTS_PADDING_X,
       paddingY: PANELS.RESULTS_PADDING_Y,
@@ -959,7 +961,7 @@ export class SuppressionCheckExercise extends BaseExercise {
       height: 180,
       fontSize: FONTS.INSTRUCTION,
       lineHeight: 1.5,
-      color: '#9688a0',
+      color: COLORS.TEXT_INSTRUCTION,
       background: 'rgba(0,0,0,0)',
       align: 'center',
       paddingX: 30,

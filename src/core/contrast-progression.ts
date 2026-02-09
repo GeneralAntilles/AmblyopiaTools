@@ -84,8 +84,8 @@ export function evaluateProgression(
     }
   }
 
-  // Reading: just need a reasonable session duration (5+ minutes)
-  if (exercise === 'monocular-reading') {
+  // Reading (mono or dichoptic): just need a reasonable session duration (5+ minutes)
+  if (exercise === 'monocular-reading' || exercise === 'dichoptic-reading') {
     if (stats.durationMs < 300000) {
       return { ...base, shouldIncrement: false, reason: 'Reading session under 5 minutes' };
     }

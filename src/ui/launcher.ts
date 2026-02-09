@@ -607,9 +607,6 @@ export class Launcher {
     const ex = EXERCISES.find((e) => e.id === exerciseId);
     if (!ex?.available) return null;
 
-    // Don't recommend what's already selected
-    if (exerciseId === this.selectedExercise) return null;
-
     return exerciseId;
   }
 

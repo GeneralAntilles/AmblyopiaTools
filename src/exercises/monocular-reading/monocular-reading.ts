@@ -254,12 +254,16 @@ export class MonocularReadingExercise extends BaseExercise {
     }
 
     this.textMesh?.geometry.dispose();
+    this.textMaterial?.map?.dispose();
     this.textMaterial?.dispose();
     this.pageIndicatorMesh?.geometry.dispose();
+    this.pageIndicatorMaterial?.map?.dispose();
     this.pageIndicatorMaterial?.dispose();
     this.progressMesh?.geometry.dispose();
+    this.progressMaterial?.map?.dispose();
     this.progressMaterial?.dispose();
     this.nonTrainingMesh?.geometry.dispose();
+    this.nonTrainingMaterial?.map?.dispose();
     this.nonTrainingMaterial?.dispose();
     this.envSphereMesh?.geometry.dispose();
     this.envMaterial?.map?.dispose();

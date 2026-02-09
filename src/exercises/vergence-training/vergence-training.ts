@@ -205,8 +205,10 @@ export class VergenceTrainingExercise extends BaseExercise {
     this.envMaterial?.map?.dispose();
     this.envMaterial?.dispose();
     this.instructionMesh?.geometry.dispose();
+    this.instructionMaterial?.map?.dispose();
     this.instructionMaterial?.dispose();
     this.feedbackMesh?.geometry.dispose();
+    this.feedbackMaterial?.map?.dispose();
     this.feedbackMaterial?.dispose();
 
     this.renderer = null;
@@ -227,6 +229,7 @@ export class VergenceTrainingExercise extends BaseExercise {
       exercise: 'vergence-training',
       durationMs: this.getElapsedMs(),
       trials: this.results.length,
+      fusionRate: fusionRate(this.results),
       convergenceFusionRate: fusionRate(conv),
       divergenceFusionRate: fusionRate(div),
       maxConvergenceDisparityMm: Math.round(this.maxConvergenceDisparity * 1000 * 10) / 10,
