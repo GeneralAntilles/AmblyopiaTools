@@ -210,6 +210,7 @@ export class MonocularReadingExercise extends BaseExercise {
     this.unsubInput = this.input.onAction((action) => {
       switch (action) {
         case 'page-forward':
+        case 'select':
           this.nextPage();
           break;
         case 'page-back':
@@ -376,6 +377,7 @@ export class MonocularReadingExercise extends BaseExercise {
     if (this.currentPage < this.pages.length - 1) {
       this.currentPage++;
       this.pagesRead++;
+      this.input?.haptic('tick');
       this.onPageChanged();
     } else if (this.currentChapter < this.chapters.length - 1) {
       this.nextChapter();
@@ -385,6 +387,7 @@ export class MonocularReadingExercise extends BaseExercise {
   private prevPage(): void {
     if (this.currentPage > 0) {
       this.currentPage--;
+      this.input?.haptic('tick');
       this.onPageChanged();
     } else if (this.currentChapter > 0) {
       this.currentChapter--;
@@ -397,6 +400,7 @@ export class MonocularReadingExercise extends BaseExercise {
   private nextChapter(): void {
     if (this.currentChapter < this.chapters.length - 1) {
       this.chaptersRead++;
+      this.input?.haptic('light');
       this.loadChapter(this.currentChapter + 1);
       this.onPageChanged();
     }
@@ -404,6 +408,7 @@ export class MonocularReadingExercise extends BaseExercise {
 
   private prevChapter(): void {
     if (this.currentChapter > 0) {
+      this.input?.haptic('light');
       this.loadChapter(this.currentChapter - 1);
       this.onPageChanged();
     }

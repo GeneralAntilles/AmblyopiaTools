@@ -372,6 +372,7 @@ export class VergenceTrainingExercise extends BaseExercise {
       }
     }
 
+    this.input?.haptic(fused ? 'confirm' : 'error');
     this.showFeedbackText(fused, direction);
   }
 

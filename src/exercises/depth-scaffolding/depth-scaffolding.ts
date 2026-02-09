@@ -497,6 +497,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   private selectObject(index: number): void {
     if (!this.awaitingSelection) return;
+    this.input?.haptic('tick');
     this.selectedIndex = index;
 
     // Move selector ring to selected object
@@ -524,6 +525,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
       reactionTimeMs,
     });
 
+    this.input?.haptic(correct ? 'confirm' : 'error');
     this.updateStaircase(correct);
     this.showFeedbackText(correct);
   }
@@ -543,6 +545,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
       reactionTimeMs,
     });
 
+    this.input?.haptic('error');
     this.updateStaircase(false);
     this.showFeedbackText(false);
   }

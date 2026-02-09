@@ -614,9 +614,11 @@ export class SuppressionCheckExercise extends BaseExercise {
 
     if (response === 'fusion') {
       // Enter offset measurement phase — dots stay visible
+      this.input?.haptic('confirm');
       this.pendingResult = { response, reactionTimeMs, condition };
       this.enterOffsetPhase(condition);
     } else {
+      this.input?.haptic('light');
       this.results.push({ response, reactionTimeMs, condition });
       this.currentTrial++;
       this.setDotsOpacity(0);
@@ -643,6 +645,7 @@ export class SuppressionCheckExercise extends BaseExercise {
   }
 
   private confirmOffset(): void {
+    this.input?.haptic('medium');
     this.offsetPhase = false;
     if (this.crosshairGroup) this.crosshairGroup.visible = false;
 

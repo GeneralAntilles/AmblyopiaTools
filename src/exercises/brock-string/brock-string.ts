@@ -153,6 +153,7 @@ export class BrockStringExercise extends BaseExercise {
 
       if (this.waitingForStart && action === 'select') {
         // Trigger fallback: attach to nearest controller and start
+        this.input?.haptic('light');
         this.attachNearestController();
         this.waitingForStart = false;
         if (this.guideMesh) this.guideMesh.visible = false;
@@ -560,6 +561,7 @@ export class BrockStringExercise extends BaseExercise {
       reactionTimeMs,
     });
 
+    this.input?.haptic(fused ? 'confirm' : 'error');
     this.showFeedbackText(fused);
   }
 

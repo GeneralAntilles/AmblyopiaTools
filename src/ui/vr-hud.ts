@@ -7,6 +7,11 @@
 
 import * as THREE from 'three';
 import { TextRenderer } from '../utils/text-renderer';
+import { COLORS, FONTS, CONTENT_Y } from './vr-constants';
+
+const HUD_Y = CONTENT_Y + 0.72;  // Above content area
+const HUD_Z = -2.0;
+const HUD_COLOR = COLORS.TEXT_HUD;
 
 export class VRHud {
   private textRenderer: TextRenderer;
@@ -15,6 +20,7 @@ export class VRHud {
   private statusMaterial: THREE.MeshBasicMaterial;
   private timerMesh: THREE.Mesh;
   private timerMaterial: THREE.MeshBasicMaterial;
+  private lastTimerDisplay = '';
 
   constructor() {
     this.textRenderer = new TextRenderer();
@@ -29,7 +35,7 @@ export class VRHud {
     });
     const statusGeo = new THREE.PlaneGeometry(0.55, 0.05);
     this.statusMesh = new THREE.Mesh(statusGeo, this.statusMaterial);
-    this.statusMesh.position.set(-0.55, 2.22, -2.0);
+    this.statusMesh.position.set(-0.55, HUD_Y, HUD_Z);
     this.hudGroup.add(this.statusMesh);
 
     // Timer (top-right, above reading panel)
@@ -41,7 +47,7 @@ export class VRHud {
     });
     const timerGeo = new THREE.PlaneGeometry(0.3, 0.05);
     this.timerMesh = new THREE.Mesh(timerGeo, this.timerMaterial);
-    this.timerMesh.position.set(0.55, 2.22, -2.0);
+    this.timerMesh.position.set(0.55, HUD_Y, HUD_Z);
     this.hudGroup.add(this.timerMesh);
   }
 
@@ -50,13 +56,14 @@ export class VRHud {
   }
 
   updateStatus(text: string): void {
+    this.statusMaterial.map?.dispose();
     const tex = this.textRenderer.renderToTexture({
       text,
       width: 512,
       height: 48,
-      fontSize: 20,
+      fontSize: FONTS.HUD_STATUS,
       lineHeight: 1.0,
-      color: '#7a6a80',
+      color: HUD_COLOR,
       background: 'rgba(0,0,0,0)',
       paddingX: 8,
       paddingY: 10,
@@ -71,13 +78,18 @@ export class VRHud {
     const minutes = Math.floor(seconds / 60);
     const display = `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
+    // Only re-render when the display string actually changes (once/sec, not every frame)
+    if (display === this.lastTimerDisplay) return;
+    this.lastTimerDisplay = display;
+
+    this.timerMaterial.map?.dispose();
     const tex = this.textRenderer.renderToTexture({
       text: display,
       width: 256,
       height: 48,
-      fontSize: 22,
+      fontSize: FONTS.HUD_TIMER,
       lineHeight: 1.0,
-      color: '#7a6a80',
+      color: HUD_COLOR,
       background: 'rgba(0,0,0,0)',
       paddingX: 8,
       paddingY: 10,
@@ -89,8 +101,10 @@ export class VRHud {
 
   dispose(): void {
     this.statusMesh.geometry.dispose();
+    this.statusMaterial.map?.dispose();
     this.statusMaterial.dispose();
     this.timerMesh.geometry.dispose();
+    this.timerMaterial.map?.dispose();
     this.timerMaterial.dispose();
   }
 }

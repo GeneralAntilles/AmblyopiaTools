@@ -6,7 +6,7 @@
  */
 
 export type InputAction =
-  | 'page-forward'    // Thumbstick right, or trigger
+  | 'page-forward'    // Thumbstick right
   | 'page-back'       // Thumbstick left
   | 'chapter-next'    // Thumbstick down
   | 'chapter-prev'    // Thumbstick up
@@ -17,6 +17,22 @@ export type InputAction =
   | 'button-b';       // B (right) / Y (left) button
 
 export type InputActionCallback = (action: InputAction) => void;
+
+/** Haptic pulse presets. */
+export type HapticPreset = 'light' | 'medium' | 'confirm' | 'error' | 'tick';
+
+interface HapticParams {
+  intensity: number;
+  durationMs: number;
+}
+
+const HAPTIC_PRESETS: Record<HapticPreset, HapticParams> = {
+  tick:    { intensity: 0.15, durationMs: 20 },
+  light:   { intensity: 0.3,  durationMs: 40 },
+  medium:  { intensity: 0.5,  durationMs: 60 },
+  confirm: { intensity: 0.6,  durationMs: 100 },
+  error:   { intensity: 0.8,  durationMs: 150 },
+};
 
 interface ControllerState {
   triggerPressed: boolean;
@@ -135,9 +151,26 @@ export class InputManager {
     }
   }
 
+  /**
+   * Fire a haptic pulse on all connected controllers.
+   * Uses named presets for consistency across exercises.
+   * Silently fails if haptics are unavailable (e.g., hand tracking).
+   */
+  haptic(preset: HapticPreset): void {
+    if (!this.session) return;
+    const { intensity, durationMs } = HAPTIC_PRESETS[preset];
+    for (const source of this.session.inputSources) {
+      if (!source.gamepad) continue;
+      // WebXR Gamepad hapticActuators API
+      const actuators = (source.gamepad as any).hapticActuators;
+      if (actuators?.[0]?.pulse) {
+        actuators[0].pulse(intensity, durationMs).catch(() => {});
+      }
+    }
+  }
+
   private handleSelect = (_event: XRInputSourceEvent): void => {
     this.emit('select');
-    this.emit('page-forward');
   };
 
   private handleSqueeze = (_event: XRInputSourceEvent): void => {
