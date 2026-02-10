@@ -53,6 +53,11 @@ export function showSessionSummary(
     rows.push({ label: 'Diplopia', value: `${stats.diplopiaRate}%` });
   }
 
+  // NPC (Brock String)
+  if ('npcCm' in stats) {
+    rows.push({ label: 'Near Point', value: `${stats.npcCm} cm` });
+  }
+
   // Vergence / depth stats
   if ('trials' in stats && !('fusionRate' in stats)) {
     rows.push({ label: 'Trials', value: String(stats.trials) });
