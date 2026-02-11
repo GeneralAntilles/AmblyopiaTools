@@ -58,6 +58,20 @@ export function showSessionSummary(
     rows.push({ label: 'Near Point', value: `${stats.npcCm} cm` });
   }
 
+  // 2048 stats
+  if ('score' in stats && stats.exercise === 'dichoptic-2048') {
+    rows.push({ label: 'Score', value: String(stats.score) });
+    if ('highestTile' in stats) {
+      rows.push({ label: 'Best Tile', value: String(stats.highestTile) });
+    }
+    if ('moveCount' in stats) {
+      rows.push({ label: 'Moves', value: String(stats.moveCount) });
+    }
+    if (stats.won) {
+      rows.push({ label: 'Result', value: 'Reached 2048!', highlight: true });
+    }
+  }
+
   // Vergence / depth stats
   if ('trials' in stats && !('fusionRate' in stats)) {
     rows.push({ label: 'Trials', value: String(stats.trials) });

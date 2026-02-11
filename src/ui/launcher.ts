@@ -42,6 +42,14 @@ const EXERCISES: ExerciseDefinition[] = [
     available: false,
   },
   {
+    id: 'dichoptic-2048',
+    name: 'Dichoptic 2048',
+    description:
+      'Play 2048 with the board visible to both eyes but tiles only to your training eye. Forces binocular cooperation during gameplay.',
+    type: 'dichoptic',
+    available: true,
+  },
+  {
     id: 'dichoptic-movie',
     name: 'Dichoptic Movie Viewing',
     description:
@@ -198,6 +206,7 @@ export class Launcher {
       'brock-string': 'Brock String',
       'vergence-training': 'Vergence Training',
       'depth-scaffolding': 'Depth Scaffolding',
+      'dichoptic-2048': 'Dichoptic 2048',
     };
 
     const statsHtml = `
@@ -665,6 +674,9 @@ function formatDetails(record: import('../core/settings-store').SessionRecord): 
   }
   if (typeof stats.convergenceFusionRate === 'number') {
     parts.push(`conv ${stats.convergenceFusionRate}%`);
+  }
+  if (typeof stats.score === 'number' && typeof stats.highestTile === 'number') {
+    parts.push(`${stats.score} pts, best ${stats.highestTile}`);
   }
 
   return parts.join(', ');

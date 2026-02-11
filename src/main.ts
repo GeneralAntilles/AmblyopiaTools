@@ -20,6 +20,7 @@ import { SuppressionCheckExercise } from './exercises/suppression-check/suppress
 import { BrockStringExercise } from './exercises/brock-string/brock-string';
 import { VergenceTrainingExercise } from './exercises/vergence-training/vergence-training';
 import { DepthScaffoldingExercise } from './exercises/depth-scaffolding/depth-scaffolding';
+import { Dichoptic2048Exercise } from './exercises/dichoptic-2048/dichoptic-2048';
 import type { BaseExercise } from './exercises/base-exercise';
 
 // Global instances
@@ -330,6 +331,21 @@ async function startExercise(exerciseId: string): Promise<void> {
 
       activeExercise = exercise;
       vrHud?.updateStatus('Depth — ←↑→ select, trigger confirm, grip exit');
+      break;
+    }
+
+    case 'dichoptic-2048': {
+      const exercise = new Dichoptic2048Exercise();
+      exercise.setExitCallback(() => { xrManager?.end(); });
+
+      await exercise.setup({
+        renderer: perEyeRenderer,
+        input: inputManager,
+        contrast: contrastEngine,
+      });
+
+      activeExercise = exercise;
+      vrHud?.updateStatus('2048 — flick to slide, A = new game, grip exit');
       break;
     }
 

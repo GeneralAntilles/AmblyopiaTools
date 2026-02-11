@@ -62,7 +62,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   contrastProgressionHistory: [],
   setupCompleted: false,
   setupCompletedAt: null,
-  exerciseOrder: ['suppression-check', 'monocular-reading', 'brock-string', 'vergence-training', 'depth-scaffolding'],
+  exerciseOrder: ['suppression-check', 'monocular-reading', 'dichoptic-2048', 'brock-string', 'vergence-training', 'depth-scaffolding'],
   lastCompletedExerciseIndex: -1,
 };
 
