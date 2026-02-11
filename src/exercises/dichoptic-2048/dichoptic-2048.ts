@@ -30,7 +30,7 @@ const CELL_COUNT = 4;
 const BOARD_PADDING = 0.04;      // padding inside board edges
 const CELL_GAP = 0.02;
 const CELL_SIZE = (BOARD_SIZE - BOARD_PADDING * 2 - CELL_GAP * (CELL_COUNT - 1)) / CELL_COUNT;
-const TILE_Z_OFFSET = 0;         // no z-fighting: board is Layer 2, tiles are Layer 1
+const TILE_Z_OFFSET = 0.01;      // 1cm forward of board — clean depth separation
 
 // --- Animation ---
 const SLIDE_DURATION = 0.12;     // seconds
@@ -58,10 +58,10 @@ export class Dichoptic2048Exercise extends BaseExercise {
   private tileTextures: TileTextureCache;
   private game: Game2048;
 
-  // Scene objects — Layer 0 (both eyes) + Layer 2 (non-training eye)
+  // Scene objects — Layer 0 (both eyes)
   private envSphereMesh: THREE.Mesh | null = null;
   private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private boardMesh: THREE.Mesh | null = null;         // Layer 2 (non-training)
+  private boardMesh: THREE.Mesh | null = null;
   private boardMaterial: THREE.MeshBasicMaterial | null = null;
   private scoreMesh: THREE.Mesh | null = null;
   private scoreMaterial: THREE.MeshBasicMaterial | null = null;
@@ -368,7 +368,7 @@ export class Dichoptic2048Exercise extends BaseExercise {
     const geo = new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE);
     this.boardMesh = new THREE.Mesh(geo, this.boardMaterial);
     this.boardMesh.position.set(0, BOARD_Y, BOARD_Z);
-    this.renderer.addToNonTrainingEye(this.boardMesh);
+    this.renderer.addToBothEyes(this.boardMesh);
   }
 
   private renderBoardTexture(): THREE.CanvasTexture {
@@ -402,27 +402,30 @@ export class Dichoptic2048Exercise extends BaseExercise {
     ctx.closePath();
     ctx.stroke();
 
-    // Cell wells (empty grid squares)
+    // Grid lines (thin dividers between cells, no filled wells)
     const padding = 20;
     const gap = 10;
     const cellPx = (SIZE - padding * 2 - gap * 3) / 4;
 
-    for (let row = 0; row < 4; row++) {
-      for (let col = 0; col < 4; col++) {
-        const x = padding + col * (cellPx + gap);
-        const y = padding + row * (cellPx + gap);
+    ctx.strokeStyle = COLORS.PANEL_BORDER;
+    ctx.lineWidth = 1.5;
 
-        ctx.fillStyle = '#241c30';
-        ctx.beginPath();
-        const cr = 8;
-        ctx.moveTo(x + cr, y);
-        ctx.arcTo(x + cellPx, y, x + cellPx, y + cellPx, cr);
-        ctx.arcTo(x + cellPx, y + cellPx, x, y + cellPx, cr);
-        ctx.arcTo(x, y + cellPx, x, y, cr);
-        ctx.arcTo(x, y, x + cellPx, y, cr);
-        ctx.closePath();
-        ctx.fill();
-      }
+    // Vertical lines
+    for (let col = 1; col < 4; col++) {
+      const x = padding + col * (cellPx + gap) - gap / 2;
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, SIZE - padding);
+      ctx.stroke();
+    }
+
+    // Horizontal lines
+    for (let row = 1; row < 4; row++) {
+      const y = padding + row * (cellPx + gap) - gap / 2;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(SIZE - padding, y);
+      ctx.stroke();
     }
 
     const texture = new THREE.CanvasTexture(canvas);
