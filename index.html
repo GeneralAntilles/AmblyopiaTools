@@ -49,7 +49,7 @@
 
     /* ── Layout ────────────────────────────────────────────── */
     #app {
-      max-width: 640px;
+      max-width: 960px;
       margin: 0 auto;
       padding: 40px 24px 64px;
     }
@@ -166,29 +166,89 @@
       transition: border-color var(--transition);
     }
 
+    /* ── Exercise Type Groups ─────────────────────────────── */
+    .exercise-type-group {
+      margin-bottom: 28px;
+    }
+
+    .exercise-type-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .type-group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .type-group-header h3 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+
+    .type-group-header .type-count {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      font-weight: 400;
+    }
+
+    .type-group-header.monocular h3  { color: #5ac98a; }
+    .type-group-header.dichoptic h3  { color: #c98aaf; }
+    .type-group-header.binocular h3  { color: #8ab0c9; }
+    .type-group-header.diagnostic h3 { color: #c9a85a; }
+
+    .type-group-accent {
+      width: 3px;
+      height: 18px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .monocular .type-group-accent  { background: #5ac98a; }
+    .dichoptic .type-group-accent  { background: #c98aaf; }
+    .binocular .type-group-accent  { background: #8ab0c9; }
+    .diagnostic .type-group-accent { background: #c9a85a; }
+
     /* ── Exercise Cards ────────────────────────────────────── */
     .exercise-cards {
       display: grid;
-      gap: 10px;
+      gap: 12px;
+      grid-template-columns: 1fr;
+    }
+
+    @media (min-width: 600px) {
+      .exercise-cards {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (min-width: 900px) {
+      .exercise-cards {
+        grid-template-columns: repeat(3, 1fr);
+      }
     }
 
     .exercise-card {
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
-      padding: 18px 20px;
+      padding: 20px;
       cursor: pointer;
       box-shadow: var(--shadow-card);
       transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+      display: flex;
+      flex-direction: column;
     }
 
-    .exercise-card:hover {
+    .exercise-card:hover:not(.disabled) {
       border-color: var(--accent);
       box-shadow: var(--shadow-hover);
       transform: translateY(-1px);
     }
 
-    .exercise-card:active {
+    .exercise-card:active:not(.disabled) {
       transform: translateY(0);
       box-shadow: var(--shadow-card);
     }
@@ -199,10 +259,15 @@
       box-shadow: var(--shadow-hover);
     }
 
+    .exercise-card.disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
     .exercise-card h3 {
       font-size: 16px;
       font-weight: 600;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
       color: var(--text);
       letter-spacing: -0.2px;
     }
@@ -211,6 +276,52 @@
       font-size: 13px;
       color: var(--text-secondary);
       line-height: 1.5;
+      flex: 1;
+    }
+
+    .exercise-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+      gap: 10px;
+    }
+
+    /* ── Start Button (per-card) ──────────────────────────── */
+    .exercise-start-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background var(--transition), transform 0.1s ease;
+      letter-spacing: -0.1px;
+    }
+
+    .exercise-start-btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .exercise-start-btn:active {
+      transform: translateY(0);
+    }
+
+    .coming-soon-badge {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      padding: 5px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      white-space: nowrap;
     }
 
     /* ── Tags (pill-style) ─────────────────────────────────── */
@@ -242,6 +353,40 @@
       font-weight: 600;
       letter-spacing: 0.3px;
       margin-left: 8px;
+    }
+
+    /* ── Inline Exercise Settings ─────────────────────────── */
+    .exercise-settings-inline {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      margin-top: 16px;
+      margin-bottom: 8px;
+      animation: slideDown 0.2s ease-out;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .exercise-settings-inline h4 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-tertiary);
+      margin-bottom: 14px;
+    }
+
+    /* ── Two-column layout for settings sections ──────────── */
+    @media (min-width: 600px) {
+      .settings-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+      }
     }
 
     /* ── Primary Button ────────────────────────────────────── */
@@ -685,6 +830,19 @@
     .history-row .duration { color: var(--text-secondary); text-align: right; }
     .history-row .date { color: var(--text-tertiary); text-align: right; font-size: 12px; }
 
+    /* ── Responsive: stack settings on small viewports ─────── */
+    @media (max-width: 480px) {
+      .settings-grid {
+        grid-template-columns: 1fr;
+      }
+      .history-stats {
+        flex-direction: column;
+      }
+      .history-stat {
+        min-width: unset;
+      }
+    }
+
     /* ── Utilities ─────────────────────────────────────────── */
     .hidden { display: none !important; }
   </style>
@@ -702,11 +860,7 @@
       practitioner. Do not use if you experience discomfort, headaches, or nausea.
     </div>
 
-    <div class="section">
-      <h2>Select Exercise</h2>
-      <div class="exercise-cards" id="exercise-list"></div>
-    </div>
-
+    <!-- Therapy-wide settings (training eye, contrast progression) -->
     <div class="section" id="therapy-settings-section">
       <h2>Therapy Settings</h2>
       <div class="settings-grid">
@@ -736,70 +890,93 @@
       </div>
     </div>
 
-    <div class="section hidden" id="reading-settings-section">
-      <h2>Reading Settings</h2>
-      <div class="settings-grid">
-        <div class="setting-group">
-          <label for="font-size">Font Size</label>
-          <input type="number" id="font-size" value="48" min="16" max="128" step="4" />
-        </div>
-        <div class="setting-group">
-          <label for="line-height">Line Height</label>
-          <input type="number" id="line-height" value="1.6" min="1.0" max="3.0" step="0.1" />
-        </div>
-        <div class="setting-group">
-          <label for="font-family">Font</label>
-          <select id="font-family">
-            <option value="sans-serif">Sans-serif</option>
-            <option value="serif">Serif</option>
-            <option value="monospace">Monospace</option>
-          </select>
-        </div>
-        <div class="setting-group">
-          <label for="non-training-display">Non-Training Eye</label>
-          <select id="non-training-display">
-            <option value="dichoptic">Dichoptic (reduced contrast text)</option>
-            <option value="blank">Blank (dark panel)</option>
-            <option value="fixation">Fixation cross</option>
-            <option value="pattern">Low-contrast pattern</option>
-          </select>
-        </div>
-      </div>
-      <div class="settings-grid" id="contrast-settings" style="display:none">
-        <div class="setting-group">
-          <label for="contrast-dominant">Fellow Eye Contrast</label>
-          <input type="range" id="contrast-dominant" min="0" max="100" value="20" step="5" />
-          <span id="contrast-dominant-value" class="setting-hint">20%</span>
-        </div>
-        <div class="setting-group">
-          <span class="setting-hint" style="line-height:1.5;">
-            Lower = harder for fellow eye (more therapeutic).<br/>
-            Increase gradually over sessions as binocular function improves.
-          </span>
-        </div>
-      </div>
-      <h2>Reading Source</h2>
-      <div class="file-upload" id="file-upload-area">
-        <input type="file" id="file-input" accept=".epub,.txt,.text" style="display:none" />
-        <button type="button" id="file-upload-btn" class="file-upload-btn">Load EPUB or Text File</button>
-        <div id="file-info" class="file-info"></div>
-      </div>
-      <div id="chapter-nav" class="chapter-nav hidden">
-        <label for="chapter-select">Chapter</label>
-        <select id="chapter-select"></select>
-      </div>
-      <h2>Or Paste Text</h2>
-      <textarea id="reading-text" placeholder="Paste your reading text here, or load an EPUB above...">The quick brown fox jumps over the lazy dog. This is a sample text for monocular reading practice. Replace this with your own reading material — books, articles, or any text you want to practice with.
+    <div id="webxr-status"></div>
+
+    <!-- Exercises grouped by type — rendered by launcher.ts -->
+    <div class="section">
+      <h2>Exercises</h2>
+      <div id="exercise-list"></div>
+    </div>
+
+    <!-- Reading settings rendered inline by launcher.ts when monocular-reading selected -->
+    <div id="reading-settings-anchor"></div>
+
+    <!-- Hidden template elements for reading settings (populated by launcher.ts) -->
+    <template id="reading-settings-template">
+      <div class="exercise-settings-inline" id="reading-settings-section">
+        <h4>Reading Settings</h4>
+        <div class="settings-two-col">
+          <div>
+            <div class="settings-grid">
+              <div class="setting-group">
+                <label for="font-size">Font Size</label>
+                <input type="number" id="font-size" value="48" min="16" max="128" step="4" />
+              </div>
+              <div class="setting-group">
+                <label for="line-height">Line Height</label>
+                <input type="number" id="line-height" value="1.6" min="1.0" max="3.0" step="0.1" />
+              </div>
+              <div class="setting-group">
+                <label for="font-family">Font</label>
+                <select id="font-family">
+                  <option value="sans-serif">Sans-serif</option>
+                  <option value="serif">Serif</option>
+                  <option value="monospace">Monospace</option>
+                </select>
+              </div>
+              <div class="setting-group">
+                <label for="non-training-display">Non-Training Eye</label>
+                <select id="non-training-display">
+                  <option value="dichoptic">Dichoptic (reduced contrast text)</option>
+                  <option value="blank">Blank (dark panel)</option>
+                  <option value="fixation">Fixation cross</option>
+                  <option value="pattern">Low-contrast pattern</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-grid" id="contrast-settings" style="display:none">
+              <div class="setting-group">
+                <label for="contrast-dominant">Fellow Eye Contrast</label>
+                <input type="range" id="contrast-dominant" min="0" max="100" value="20" step="5" />
+                <span id="contrast-dominant-value" class="setting-hint">20%</span>
+              </div>
+              <div class="setting-group">
+                <span class="setting-hint" style="line-height:1.5;">
+                  Lower = harder for fellow eye (more therapeutic).<br/>
+                  Increase gradually over sessions as binocular function improves.
+                </span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="setting-group" style="margin-bottom:16px;">
+              <label style="font-size:13px;color:var(--text-secondary);">Reading Source</label>
+              <div class="file-upload" id="file-upload-area">
+                <input type="file" id="file-input" accept=".epub,.txt,.text" style="display:none" />
+                <button type="button" id="file-upload-btn" class="file-upload-btn">Load EPUB or Text File</button>
+                <div id="file-info" class="file-info"></div>
+              </div>
+            </div>
+            <div id="chapter-nav" class="chapter-nav hidden">
+              <label for="chapter-select">Chapter</label>
+              <select id="chapter-select"></select>
+            </div>
+            <div class="setting-group">
+              <label for="reading-text" style="font-size:13px;color:var(--text-secondary);">Or Paste Text</label>
+              <textarea id="reading-text" placeholder="Paste your reading text here, or load an EPUB above..." style="min-height:160px;">The quick brown fox jumps over the lazy dog. This is a sample text for monocular reading practice. Replace this with your own reading material — books, articles, or any text you want to practice with.
 
 Vision therapy exercises like monocular reading help strengthen the neural pathways from the amblyopic eye to the visual cortex. By forcing the brain to process text through the weaker eye, you encourage neuroplastic adaptation and improved visual acuity.
 
 Regular practice sessions of 15-20 minutes are recommended. Take breaks if you experience any discomfort, eye strain, or headaches. Consistency over time produces the best results.
 
 Dichoptic training — where each eye receives different stimuli — has been shown in research to improve binocular function more effectively than patching alone. This platform provides several dichoptic exercises alongside traditional monocular training.</textarea>
-    </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
 
-    <div id="webxr-status"></div>
-
+    <!-- Fallback global Enter VR button (for WebXR status + no-JS fallback) -->
     <button class="enter-vr-btn" id="enter-vr-btn" disabled>Checking WebXR support...</button>
 
     <div class="session-summary" id="session-summary">

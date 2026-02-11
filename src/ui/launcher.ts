@@ -106,6 +106,9 @@ const TYPE_LABELS: Record<string, string> = {
   diagnostic: 'Diagnostic',
 };
 
+/** Order in which type groups appear on the page */
+const TYPE_ORDER: ExerciseDefinition['type'][] = ['binocular', 'dichoptic', 'monocular', 'diagnostic'];
+
 export class Launcher {
   private store: SettingsStore;
   private selectedExercise: string = 'monocular-reading';
@@ -141,16 +144,8 @@ export class Launcher {
     this.renderExerciseCards();
     this.bindSettings(settings);
     this.bindEnterVR();
-    this.bindFileUpload();
     this.bindTherapySettings(settings);
     this.updateContrastProgress(settings.contrastDominant);
-
-    // Load saved reading text
-    const savedText = await this.store.getReadingText();
-    if (savedText) {
-      const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
-      if (textarea) textarea.value = savedText;
-    }
 
     // Render session history with recommendations
     await this.renderSessionHistory();
@@ -248,41 +243,123 @@ export class Launcher {
     const container = document.getElementById('exercise-list');
     if (!container) return;
 
-    container.innerHTML = EXERCISES.map(
-      (ex) => `
-      <div class="exercise-card ${ex.id === this.selectedExercise ? 'selected' : ''} ${!ex.available ? 'disabled' : ''}"
-           data-exercise="${ex.id}"
-           ${!ex.available ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-        <h3>${ex.name}${!ex.available ? ' (Coming Soon)' : ''}</h3>
-        <p>${ex.description}</p>
-        <span class="tag ${ex.type}">${TYPE_LABELS[ex.type] ?? ex.type}</span>
-      </div>
-    `
-    ).join('');
+    // Group exercises by type
+    const groups = new Map<string, ExerciseDefinition[]>();
+    for (const type of TYPE_ORDER) {
+      const matching = EXERCISES.filter((ex) => ex.type === type);
+      if (matching.length > 0) groups.set(type, matching);
+    }
 
+    let html = '';
+    for (const [type, exercises] of groups) {
+      const availableCount = exercises.filter((e) => e.available).length;
+      html += `
+        <div class="exercise-type-group">
+          <div class="type-group-header ${type}">
+            <div class="type-group-accent"></div>
+            <h3>${TYPE_LABELS[type] ?? type}</h3>
+            <span class="type-count">${availableCount} available</span>
+          </div>
+          <div class="exercise-cards">
+            ${exercises.map((ex) => this.renderCard(ex)).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Bind card click → select
     container.querySelectorAll('.exercise-card').forEach((card) => {
-      card.addEventListener('click', () => {
+      card.addEventListener('click', (e) => {
+        // Don't select if start button was clicked (it handles its own action)
+        if ((e.target as HTMLElement).closest('.exercise-start-btn')) return;
+
         const id = (card as HTMLElement).dataset.exercise;
-        const exercise = EXERCISES.find((e) => e.id === id);
+        const exercise = EXERCISES.find((ex) => ex.id === id);
         if (!exercise?.available) return;
 
-        this.selectedExercise = id!;
-        this.store.saveSetting('lastExercise', id!);
+        this.selectExercise(id!, container);
+      });
+    });
 
-        container.querySelectorAll('.exercise-card').forEach((c) => c.classList.remove('selected'));
-        card.classList.add('selected');
+    // Bind start buttons → enter VR
+    container.querySelectorAll('.exercise-start-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).dataset.exercise;
+        if (!id) return;
+        const exercise = EXERCISES.find((ex) => ex.id === id);
+        if (!exercise?.available) return;
 
-        this.updateSettingsVisibility();
+        this.selectExercise(id, container);
+        if (this.onEnterVR) this.onEnterVR(id);
       });
     });
 
     this.updateSettingsVisibility();
   }
 
+  private renderCard(ex: ExerciseDefinition): string {
+    const selected = ex.id === this.selectedExercise ? 'selected' : '';
+    const disabled = !ex.available ? 'disabled' : '';
+
+    const footer = ex.available
+      ? `<span class="tag ${ex.type}">${TYPE_LABELS[ex.type] ?? ex.type}</span>
+         <button class="exercise-start-btn" data-exercise="${ex.id}">Start in VR</button>`
+      : `<span class="tag ${ex.type}">${TYPE_LABELS[ex.type] ?? ex.type}</span>
+         <span class="coming-soon-badge">Coming Soon</span>`;
+
+    return `
+      <div class="exercise-card ${selected} ${disabled}" data-exercise="${ex.id}">
+        <h3>${escapeHtml(ex.name)}</h3>
+        <p>${escapeHtml(ex.description)}</p>
+        <div class="exercise-card-footer">${footer}</div>
+      </div>
+    `;
+  }
+
+  private selectExercise(id: string, container: Element): void {
+    this.selectedExercise = id;
+    this.store.saveSetting('lastExercise', id);
+
+    container.querySelectorAll('.exercise-card').forEach((c) => c.classList.remove('selected'));
+    const card = container.querySelector(`.exercise-card[data-exercise="${id}"]`);
+    if (card) card.classList.add('selected');
+
+    this.updateSettingsVisibility();
+  }
+
   private updateSettingsVisibility(): void {
-    const readingSection = document.getElementById('reading-settings-section');
-    if (readingSection) {
-      readingSection.classList.toggle('hidden', this.selectedExercise !== 'monocular-reading');
+    const anchor = document.getElementById('reading-settings-anchor');
+    if (!anchor) return;
+
+    const existing = document.getElementById('reading-settings-section');
+    const isReading = this.selectedExercise === 'monocular-reading';
+
+    if (isReading && !existing) {
+      // Stamp reading settings from template
+      const template = document.getElementById('reading-settings-template') as HTMLTemplateElement | null;
+      if (template) {
+        const clone = template.content.cloneNode(true) as DocumentFragment;
+        anchor.appendChild(clone);
+        // Re-bind settings and file upload for the newly inserted elements
+        this.store.getSettings().then((settings) => {
+          this.bindReadingSettings(settings);
+          this.bindFileUpload();
+          this.bindContrastSlider(settings.contrastDominant);
+          this.updateContrastVisibility();
+          // Load saved reading text
+          this.store.getReadingText().then((savedText) => {
+            if (savedText) {
+              const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
+              if (textarea) textarea.value = savedText;
+            }
+          });
+        });
+      }
+    } else if (!isReading && existing) {
+      existing.remove();
     }
   }
 
@@ -398,9 +475,14 @@ export class Launcher {
   }
 
   private bindSettings(settings: UserSettings): void {
+    // Bind therapy-level settings (always present in DOM)
     this.bindSelect('training-eye', settings.trainingEye, (val) =>
       this.store.saveSetting('trainingEye', val as 'left' | 'right')
     );
+  }
+
+  /** Bind reading-specific settings (called when reading settings panel is stamped) */
+  private bindReadingSettings(settings: UserSettings): void {
     this.bindNumber('font-size', settings.fontSize, (val) =>
       this.store.saveSetting('fontSize', val)
     );
@@ -414,10 +496,6 @@ export class Launcher {
       this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern' | 'dichoptic');
       this.updateContrastVisibility();
     });
-
-    // Contrast slider for dichoptic mode
-    this.bindContrastSlider(settings.contrastDominant);
-    this.updateContrastVisibility();
 
     const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
     if (textarea) {

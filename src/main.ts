@@ -52,11 +52,20 @@ async function init(): Promise<void> {
   if (supported) {
     vrBtn.disabled = false;
     vrBtn.textContent = 'Enter VR';
+    // Enable per-card start buttons
+    document.querySelectorAll('.exercise-start-btn').forEach((btn) => {
+      (btn as HTMLButtonElement).disabled = false;
+    });
   } else {
     vrBtn.disabled = true;
     vrBtn.textContent = 'WebXR Not Available';
     statusDiv.innerHTML =
       '<div class="no-webxr">WebXR is not available in this browser. Open this page in a VR headset browser (e.g., Meta Quest Browser) to use immersive mode.</div>';
+    // Disable per-card start buttons
+    document.querySelectorAll('.exercise-start-btn').forEach((btn) => {
+      (btn as HTMLButtonElement).disabled = true;
+      btn.textContent = 'No WebXR';
+    });
   }
 
   // Wire up Enter VR
