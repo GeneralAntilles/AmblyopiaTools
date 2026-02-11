@@ -1,19 +1,18 @@
 /**
- * Virtual Brock String Exercise — Progressive NPC Measurement
+ * Virtual Brock String Exercise — 3-Bead Adaptive Convergence Training
  *
  * VR implementation of the clinical Brock string convergence exercise.
  * A string stretches from the user's controller (held near the nose)
- * toward the distance with a single bead that progressively moves closer.
+ * toward the distance with THREE beads at near/mid/far depths.
  *
- * Uses a 1-up/1-down staircase: fused → move bead closer (harder),
- * double → move bead farther (easier). Tracks reversal points to
- * converge on the Near Point of Convergence (NPC).
+ * Each sweep cycles far → mid → near. The user reports fusion or
+ * diplopia at each bead. After each sweep, a 1-up/1-down staircase
+ * shifts all 3 beads closer (if near bead fused) or farther (if not).
+ * Reversals converge on the Near Point of Convergence (NPC).
  *
- * The bead color shifts green→gold→red as it approaches, giving
- * intuitive visual feedback about convergence demand.
- *
- * Controller-attached mode: the string's near end tracks whichever
- * controller the user moves toward the golden guide ring.
+ * The rapid switching between beads at different depths is the core
+ * training mechanic — it forces the vergence system to re-converge
+ * at each new distance.
  *
  * Controls:
  *   - Trigger: confirm convergence ("I see the X")
@@ -30,20 +29,31 @@ import { createEnvironmentSphere } from '../../ui/vr-environment';
 import { COLORS, FONTS, PANELS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 interface TrialResult {
+  beadIndex: number;       // 0=far, 1=mid, 2=near
   z: number;
   distanceCm: number;
   fused: boolean;
   reactionTimeMs: number;
 }
 
-// --- Staircase parameters ---
-const START_Z = -2.5;           // Start far (easy convergence)
-const STEP_CLOSER = 0.15;      // 15cm closer after fusion
-const STEP_FARTHER = 0.20;     // 20cm farther after double (conservative)
-const MIN_Z = -0.45;           // Closest the bead can go
-const MAX_Z = -2.8;            // Farthest the bead can go
+// --- 3 Beads ---
+const BEAD_COUNT = 3;
+const BEAD_SPACING = 0.6;      // 60cm between beads
+const BEAD_COLORS = [
+  0xc95a5a,  // Far = red
+  0xdbb870,  // Mid = gold
+  0x5ac97a,  // Near = green
+];
+const BEAD_LABELS = ['Far (red)', 'Middle (gold)', 'Near (green)'];
+
+// --- Staircase parameters (controls the near bead position) ---
+const START_NEAR_Z = -1.4;     // Near bead starts here (easy — all beads far)
+const STEP_CLOSER = 0.12;      // 12cm closer after fused sweep
+const STEP_FARTHER = 0.16;     // 16cm farther after failed sweep
+const MIN_NEAR_Z = -0.5;       // Closest the near bead can go
+const MAX_NEAR_Z = -1.6;       // Farthest near bead (far bead = -2.8)
 const REVERSALS_TO_END = 6;    // End after 6 direction changes
-const MAX_TRIALS = 30;         // Safety cap
+const MAX_SWEEPS = 12;         // Safety cap (= 36 individual trials)
 
 // --- String geometry ---
 const STRING_Y = 1.5;
@@ -51,16 +61,11 @@ const STRING_START_Z = -0.4;
 const STRING_END_Z = -3.0;
 const BEAD_RADIUS = 0.03;
 const STRING_SEGMENTS = 32;
-const STRING_SAG = 0.06;       // Max droop per meter of length
-
-// --- Bead color gradient (far→near) ---
-const COLOR_FAR = new THREE.Color(0x5ac97a);   // Green (easy)
-const COLOR_MID = new THREE.Color(0xdbb870);   // Gold (medium)
-const COLOR_NEAR = new THREE.Color(0xc95a5a);  // Red (hard)
+const STRING_SAG = 0.06;
 
 export class BrockStringExercise extends BaseExercise {
   readonly name = 'Brock String';
-  readonly description = 'Progressive convergence training — how close can you fuse?';
+  readonly description = 'Convergence training — focus on each bead in turn, see the X pattern';
   readonly type = 'binocular' as const;
 
   private renderer: PerEyeRenderer | null = null;
@@ -71,8 +76,8 @@ export class BrockStringExercise extends BaseExercise {
   // Scene objects
   private stringMesh: THREE.Mesh | null = null;
   private stringMaterial: THREE.MeshBasicMaterial | null = null;
-  private beadMesh: THREE.Mesh | null = null;
-  private beadMaterial: THREE.MeshBasicMaterial | null = null;
+  private beadMeshes: THREE.Mesh[] = [];
+  private beadMaterials: THREE.MeshBasicMaterial[] = [];
   private highlightRing: THREE.Mesh | null = null;
   private highlightMaterial: THREE.MeshBasicMaterial | null = null;
   private envSphereMesh: THREE.Mesh | null = null;
@@ -86,12 +91,19 @@ export class BrockStringExercise extends BaseExercise {
   private arrowMeshes: THREE.Mesh[] = [];
   private arrowMaterials: THREE.MeshBasicMaterial[] = [];
 
-  // Staircase state
-  private currentZ: number = START_Z;
+  // Staircase state (tracks the near bead Z position)
+  private currentNearZ: number = START_NEAR_Z;
   private previousDirection: 'closer' | 'farther' | null = null;
   private reversalCount: number = 0;
   private reversalZs: number[] = [];
+  private sweepCount: number = 0;
   private results: TrialResult[] = [];
+
+  // Sweep state: cycle through far(0) → mid(1) → near(2)
+  private currentBeadIndex: number = 0;
+  private sweepFused: boolean[] = [];  // fusion result per bead this sweep
+
+  // Trial timing
   private trialStartTime: number = 0;
   private awaitingResponse: boolean = false;
   private showingFeedback: boolean = false;
@@ -100,9 +112,9 @@ export class BrockStringExercise extends BaseExercise {
   private pulseTime: number = 0;
   private waitingForStart: boolean = false;
 
-  // Bead transition animation
-  private beadTransitioning: boolean = false;
-  private beadTargetZ: number = START_Z;
+  // Bead transition animation (all 3 beads shift together)
+  private beadsTransitioning: boolean = false;
+  private targetNearZ: number = START_NEAR_Z;
 
   // Controller-attached mode
   private controllerAttached: boolean = false;
@@ -126,17 +138,20 @@ export class BrockStringExercise extends BaseExercise {
     this.renderer = config.renderer;
     this.input = config.input;
     this.results = [];
-    this.currentZ = START_Z;
+    this.currentNearZ = START_NEAR_Z;
     this.previousDirection = null;
     this.reversalCount = 0;
     this.reversalZs = [];
+    this.sweepCount = 0;
+    this.currentBeadIndex = 0;
+    this.sweepFused = [];
     this.controllerAttached = false;
     this.controllerIndex = -1;
     this.stringNearEnd.set(0, STRING_Y, STRING_START_Z);
 
     this.createEnvironment();
     this.createString();
-    this.createBead();
+    this.createBeads();
     this.createHighlightRing();
     this.createUI();
     this.createGuide();
@@ -156,7 +171,7 @@ export class BrockStringExercise extends BaseExercise {
         this.waitingForStart = false;
         if (this.guideMesh) this.guideMesh.visible = false;
         for (const a of this.arrowMeshes) a.visible = false;
-        this.startTrial();
+        this.startSweep();
         return;
       }
 
@@ -189,90 +204,22 @@ export class BrockStringExercise extends BaseExercise {
         const localPos = this.renderer.worldToContentLocal(pos);
         this.stringNearEnd.copy(localPos);
         this.rebuildStringGeometry(localPos, this.stringFarEnd);
-        this.repositionBead();
-
-        // Keep highlight ring on bead
-        if (this.highlightRing?.visible && !this.beadTransitioning) {
-          this.highlightRing.position.copy(this.beadMesh!.position);
-        }
+        this.repositionAllBeads();
       }
     }
 
     // Guide phase: detect controller proximity
     if (this.waitingForStart && this.guideMesh && this.renderer) {
-      const guideWorldPos = new THREE.Vector3();
-      this.guideMesh.getWorldPosition(guideWorldPos);
-
-      let closestDist = Infinity;
-      let closestIndex = -1;
-      let closestPos: THREE.Vector3 | null = null;
-
-      for (let i = 0; i < 2; i++) {
-        const pos = this.renderer.getControllerPosition(i);
-        if (pos) {
-          const dist = pos.distanceTo(guideWorldPos);
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestIndex = i;
-            closestPos = pos;
-          }
-        }
-      }
-
-      if (closestPos && closestDist < 0.15) {
-        this.controllerAttached = true;
-        this.controllerIndex = closestIndex;
-        this.waitingForStart = false;
-        this.guideMesh.visible = false;
-        for (const a of this.arrowMeshes) a.visible = false;
-        this.startTrial();
-      } else if (closestPos) {
-        const t = Math.max(0, Math.min(1, 1 - (closestDist - 0.15) / 0.6));
-        if (t > 0.6) {
-          this.guideMaterial!.color.set(0x5ac97a);
-        } else if (t > 0.3) {
-          this.guideMaterial!.color.set(0xc9a85a);
-        } else {
-          this.guideMaterial!.color.set(0xc95a5a);
-        }
-
-        const guidePulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
-        this.guideMaterial!.opacity = guidePulse;
-
-        for (let i = 0; i < this.arrowMeshes.length; i++) {
-          const frac = 0.3 + i * 0.2;
-          const worldPos = new THREE.Vector3().lerpVectors(closestPos, guideWorldPos, frac);
-          const localPos = this.renderer.worldToContentLocal(worldPos);
-          this.arrowMeshes[i].position.copy(localPos);
-
-          const phase = this.pulseTime * 4 - i * 1.2;
-          const pulse = 0.2 + 0.5 * Math.max(0, Math.sin(phase));
-          this.arrowMaterials[i].opacity = pulse;
-        }
-      }
+      this.updateGuidePhase();
     }
 
-    // Smooth bead transition to new Z
-    if (this.beadTransitioning && this.beadMesh) {
-      const targetPos = this.getBeadPosition(this.beadTargetZ);
-      this.beadMesh.position.lerp(targetPos, Math.min(1, 4.0 * dt));
-      if (this.highlightRing) {
-        this.highlightRing.position.copy(this.beadMesh.position);
-      }
-
-      if (this.beadMesh.position.distanceTo(targetPos) < 0.01) {
-        this.beadMesh.position.copy(targetPos);
-        if (this.highlightRing) this.highlightRing.position.copy(targetPos);
-        this.beadTransitioning = false;
-        this.currentZ = this.beadTargetZ;
-        this.updateBeadColor();
-        this.trialStartTime = Date.now();
-        this.awaitingResponse = true;
-      }
+    // Smooth bead transition (all beads shift to new positions)
+    if (this.beadsTransitioning) {
+      this.animateBeadTransition(dt);
     }
 
-    // Pulse the highlight ring
-    if (this.highlightRing?.visible && !this.beadTransitioning) {
+    // Pulse the highlight ring on the active bead
+    if (this.highlightRing?.visible && !this.beadsTransitioning) {
       const scale = 1.0 + 0.15 * Math.sin(this.pulseTime * 4);
       this.highlightRing.scale.set(scale, scale, 1);
     }
@@ -291,7 +238,7 @@ export class BrockStringExercise extends BaseExercise {
 
     if (this.renderer) {
       if (this.stringMesh) this.renderer.removeFromScene(this.stringMesh);
-      if (this.beadMesh) this.renderer.removeFromScene(this.beadMesh);
+      for (const m of this.beadMeshes) this.renderer.removeFromScene(m);
       if (this.highlightRing) this.renderer.removeFromScene(this.highlightRing);
       if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
       if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
@@ -302,8 +249,10 @@ export class BrockStringExercise extends BaseExercise {
 
     this.stringMesh?.geometry.dispose();
     this.stringMaterial?.dispose();
-    this.beadMesh?.geometry.dispose();
-    this.beadMaterial?.dispose();
+    for (let i = 0; i < this.beadMeshes.length; i++) {
+      this.beadMeshes[i].geometry.dispose();
+      this.beadMaterials[i].dispose();
+    }
     this.highlightRing?.geometry.dispose();
     this.highlightMaterial?.dispose();
     this.envSphereMesh?.geometry.dispose();
@@ -322,6 +271,8 @@ export class BrockStringExercise extends BaseExercise {
       this.arrowMaterials[i].dispose();
     }
 
+    this.beadMeshes = [];
+    this.beadMaterials = [];
     this.renderer = null;
     this.input = null;
   }
@@ -343,6 +294,7 @@ export class BrockStringExercise extends BaseExercise {
       exercise: 'brock-string',
       durationMs: this.getElapsedMs(),
       trials: this.results.length,
+      sweeps: this.sweepCount,
       fusionRate: Math.round((fusedCount / total) * 100),
       avgReactionTimeMs: Math.round(totalReaction / total),
       npcMeters,
@@ -355,10 +307,10 @@ export class BrockStringExercise extends BaseExercise {
 
   private calculateNPC(): number {
     if (this.reversalZs.length === 0) {
-      // No reversals yet — use the closest Z where they fused
-      const fusedResults = this.results.filter((r) => r.fused);
-      if (fusedResults.length === 0) return Math.abs(START_Z - STRING_START_Z);
-      const closestFused = fusedResults.reduce((a, b) => (a.z > b.z ? a : b));
+      // No reversals yet — use the closest near-bead Z where they fused
+      const nearFused = this.results.filter((r) => r.beadIndex === 2 && r.fused);
+      if (nearFused.length === 0) return Math.abs(START_NEAR_Z - this.stringNearEnd.z);
+      const closestFused = nearFused.reduce((a, b) => (a.z > b.z ? a : b));
       return Math.abs(closestFused.z - this.stringNearEnd.z);
     }
 
@@ -366,6 +318,13 @@ export class BrockStringExercise extends BaseExercise {
     const recent = this.reversalZs.slice(-4);
     const avgZ = recent.reduce((sum, z) => sum + z, 0) / recent.length;
     return Math.abs(avgZ - this.stringNearEnd.z);
+  }
+
+  // --- Bead Z positions ---
+
+  /** Get the Z for a bead by index (0=far, 1=mid, 2=near) given the near bead Z */
+  private getBeadZ(beadIndex: number, nearZ: number): number {
+    return nearZ - (BEAD_COUNT - 1 - beadIndex) * BEAD_SPACING;
   }
 
   // --- Scene Setup ---
@@ -414,21 +373,24 @@ export class BrockStringExercise extends BaseExercise {
     }
   }
 
-  private createBead(): void {
+  private createBeads(): void {
     if (!this.renderer) return;
 
     const beadGeo = new THREE.SphereGeometry(BEAD_RADIUS, 16, 12);
-    this.beadMaterial = new THREE.MeshBasicMaterial({ color: 0x5ac97a });
-    this.beadMesh = new THREE.Mesh(beadGeo, this.beadMaterial);
 
-    const pos = this.getBeadPosition(this.currentZ);
-    this.beadMesh.position.copy(pos);
-    this.updateBeadColor();
-
-    this.renderer.addToBothEyes(this.beadMesh);
+    for (let i = 0; i < BEAD_COUNT; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: BEAD_COLORS[i] });
+      const mesh = new THREE.Mesh(beadGeo.clone(), mat);
+      const z = this.getBeadZ(i, this.currentNearZ);
+      const pos = this.getPointOnString(z);
+      mesh.position.copy(pos);
+      this.renderer.addToBothEyes(mesh);
+      this.beadMeshes.push(mesh);
+      this.beadMaterials.push(mat);
+    }
   }
 
-  private getBeadPosition(z: number): THREE.Vector3 {
+  private getPointOnString(z: number): THREE.Vector3 {
     if (!this.stringCurve) {
       return new THREE.Vector3(0, STRING_Y, z);
     }
@@ -438,26 +400,17 @@ export class BrockStringExercise extends BaseExercise {
     return this.stringCurve.getPointAt(proportion);
   }
 
-  private repositionBead(): void {
-    if (!this.beadMesh || !this.stringCurve || this.beadTransitioning) return;
-    const pos = this.getBeadPosition(this.currentZ);
-    this.beadMesh.position.copy(pos);
-  }
-
-  private updateBeadColor(): void {
-    if (!this.beadMaterial) return;
-
-    // Lerp: MAX_Z (far, green) → midpoint (gold) → MIN_Z (near, red)
-    const t = Math.max(0, Math.min(1, (this.currentZ - MAX_Z) / (MIN_Z - MAX_Z)));
-    const color = new THREE.Color();
-
-    if (t < 0.5) {
-      color.lerpColors(COLOR_FAR, COLOR_MID, t * 2);
-    } else {
-      color.lerpColors(COLOR_MID, COLOR_NEAR, (t - 0.5) * 2);
+  private repositionAllBeads(): void {
+    if (!this.stringCurve || this.beadsTransitioning) return;
+    for (let i = 0; i < BEAD_COUNT; i++) {
+      const z = this.getBeadZ(i, this.currentNearZ);
+      const pos = this.getPointOnString(z);
+      this.beadMeshes[i].position.copy(pos);
     }
-
-    this.beadMaterial.color.copy(color);
+    // Keep highlight on active bead
+    if (this.highlightRing?.visible) {
+      this.highlightRing.position.copy(this.beadMeshes[this.currentBeadIndex].position);
+    }
   }
 
   private createHighlightRing(): void {
@@ -472,9 +425,7 @@ export class BrockStringExercise extends BaseExercise {
       depthWrite: false,
     });
     this.highlightRing = new THREE.Mesh(ringGeo, this.highlightMaterial);
-
-    const pos = this.getBeadPosition(this.currentZ);
-    this.highlightRing.position.copy(pos);
+    this.highlightRing.visible = false;
     this.renderer.addToBothEyes(this.highlightRing);
   }
 
@@ -545,6 +496,94 @@ export class BrockStringExercise extends BaseExercise {
     }
   }
 
+  // --- Guide phase animation ---
+
+  private updateGuidePhase(): void {
+    if (!this.guideMesh || !this.renderer) return;
+
+    const guideWorldPos = new THREE.Vector3();
+    this.guideMesh.getWorldPosition(guideWorldPos);
+
+    let closestDist = Infinity;
+    let closestIndex = -1;
+    let closestPos: THREE.Vector3 | null = null;
+
+    for (let i = 0; i < 2; i++) {
+      const pos = this.renderer.getControllerPosition(i);
+      if (pos) {
+        const dist = pos.distanceTo(guideWorldPos);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestIndex = i;
+          closestPos = pos;
+        }
+      }
+    }
+
+    if (closestPos && closestDist < 0.15) {
+      this.controllerAttached = true;
+      this.controllerIndex = closestIndex;
+      this.waitingForStart = false;
+      this.guideMesh.visible = false;
+      for (const a of this.arrowMeshes) a.visible = false;
+      this.startSweep();
+    } else if (closestPos) {
+      const t = Math.max(0, Math.min(1, 1 - (closestDist - 0.15) / 0.6));
+      if (t > 0.6) {
+        this.guideMaterial!.color.set(0x5ac97a);
+      } else if (t > 0.3) {
+        this.guideMaterial!.color.set(0xc9a85a);
+      } else {
+        this.guideMaterial!.color.set(0xc95a5a);
+      }
+
+      const guidePulse = 0.4 + 0.3 * Math.sin(this.pulseTime * 3);
+      this.guideMaterial!.opacity = guidePulse;
+
+      for (let i = 0; i < this.arrowMeshes.length; i++) {
+        const frac = 0.3 + i * 0.2;
+        const worldPos = new THREE.Vector3().lerpVectors(closestPos, guideWorldPos, frac);
+        const localPos = this.renderer.worldToContentLocal(worldPos);
+        this.arrowMeshes[i].position.copy(localPos);
+
+        const phase = this.pulseTime * 4 - i * 1.2;
+        const pulse = 0.2 + 0.5 * Math.max(0, Math.sin(phase));
+        this.arrowMaterials[i].opacity = pulse;
+      }
+    }
+  }
+
+  // --- Bead transition animation ---
+
+  private animateBeadTransition(dt: number): void {
+    let allDone = true;
+
+    for (let i = 0; i < BEAD_COUNT; i++) {
+      const targetZ = this.getBeadZ(i, this.targetNearZ);
+      const targetPos = this.getPointOnString(targetZ);
+      this.beadMeshes[i].position.lerp(targetPos, Math.min(1, 4.0 * dt));
+
+      if (this.beadMeshes[i].position.distanceTo(targetPos) > 0.005) {
+        allDone = false;
+      } else {
+        this.beadMeshes[i].position.copy(targetPos);
+      }
+    }
+
+    // Keep highlight on active bead during transition
+    if (this.highlightRing?.visible) {
+      this.highlightRing.position.copy(this.beadMeshes[this.currentBeadIndex].position);
+    }
+
+    if (allDone) {
+      this.beadsTransitioning = false;
+      this.currentNearZ = this.targetNearZ;
+      // Now start accepting input for the first bead of the new sweep
+      this.trialStartTime = Date.now();
+      this.awaitingResponse = true;
+    }
+  }
+
   // --- Controller Attachment ---
 
   private attachNearestController(): void {
@@ -561,16 +600,32 @@ export class BrockStringExercise extends BaseExercise {
     this.controllerAttached = false;
   }
 
-  // --- Trial Logic ---
+  // --- Sweep & Trial Logic ---
 
-  private startTrial(): void {
+  /** Begin a new 3-bead sweep (far → mid → near) */
+  private startSweep(): void {
+    this.currentBeadIndex = 0; // start with far bead
+    this.sweepFused = [];
+    this.startBeadTrial();
+  }
+
+  /** Highlight the current bead and await response */
+  private startBeadTrial(): void {
     this.highlightRing!.visible = true;
     this.awaitingResponse = false;
     this.pulseTime = 0;
 
-    // Move bead to currentZ with animation
-    this.beadTargetZ = this.currentZ;
-    this.beadTransitioning = true;
+    // Position highlight ring on the active bead
+    const pos = this.beadMeshes[this.currentBeadIndex].position;
+    this.highlightRing!.position.copy(pos);
+
+    // If beads need to shift (start of new sweep after staircase), animate
+    if (this.beadsTransitioning) {
+      // awaitingResponse will be set to true when animation completes
+    } else {
+      this.trialStartTime = Date.now();
+      this.awaitingResponse = true;
+    }
 
     this.renderInstructions();
   }
@@ -580,36 +635,28 @@ export class BrockStringExercise extends BaseExercise {
     this.awaitingResponse = false;
 
     const reactionTimeMs = Date.now() - this.trialStartTime;
-    const distanceCm = Math.round(Math.abs(this.currentZ - this.stringNearEnd.z) * 100);
+    const z = this.getBeadZ(this.currentBeadIndex, this.currentNearZ);
+    const distanceCm = Math.round(Math.abs(z - this.stringNearEnd.z) * 100);
 
     this.results.push({
-      z: this.currentZ,
+      beadIndex: this.currentBeadIndex,
+      z,
       distanceCm,
       fused,
       reactionTimeMs,
     });
 
-    // Check for reversal
-    const direction: 'closer' | 'farther' = fused ? 'closer' : 'farther';
-    if (this.previousDirection !== null && direction !== this.previousDirection) {
-      this.reversalCount++;
-      this.reversalZs.push(this.currentZ);
-    }
-    this.previousDirection = direction;
-
-    // Update bead position for next trial
-    if (fused) {
-      this.currentZ = Math.max(MIN_Z, this.currentZ + STEP_CLOSER); // closer = less negative
-    } else {
-      this.currentZ = Math.min(MAX_Z, this.currentZ - STEP_FARTHER); // farther = more negative
-    }
+    this.sweepFused.push(fused);
 
     this.input?.haptic(fused ? 'confirm' : 'error');
     this.showFeedbackText(fused);
   }
 
   private showFeedbackText(fused: boolean): void {
-    const text = fused ? 'Fused — moving closer' : 'Double — easing back';
+    const beadLabel = BEAD_LABELS[this.currentBeadIndex];
+    const text = fused
+      ? `${beadLabel} — fused`
+      : `${beadLabel} — double`;
     const color = fused ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE;
 
     const tex = this.textRenderer.renderToTexture({
@@ -634,13 +681,43 @@ export class BrockStringExercise extends BaseExercise {
   }
 
   private advanceTrial(): void {
+    // Move to next bead in sweep, or finish sweep
+    if (this.currentBeadIndex < BEAD_COUNT - 1) {
+      // Next bead in this sweep
+      this.currentBeadIndex++;
+      this.startBeadTrial();
+      return;
+    }
+
+    // Sweep complete — run staircase based on near bead result
+    this.sweepCount++;
+    const nearFused = this.sweepFused[BEAD_COUNT - 1]; // last bead = near
+
+    const direction: 'closer' | 'farther' = nearFused ? 'closer' : 'farther';
+    if (this.previousDirection !== null && direction !== this.previousDirection) {
+      this.reversalCount++;
+      this.reversalZs.push(this.currentNearZ);
+    }
+    this.previousDirection = direction;
+
     // Check end conditions
-    if (this.reversalCount >= REVERSALS_TO_END || this.results.length >= MAX_TRIALS) {
+    if (this.reversalCount >= REVERSALS_TO_END || this.sweepCount >= MAX_SWEEPS) {
       this.showResults();
       return;
     }
 
-    this.startTrial();
+    // Adjust positions for next sweep
+    if (nearFused) {
+      this.targetNearZ = Math.max(MIN_NEAR_Z, this.currentNearZ + STEP_CLOSER);
+    } else {
+      this.targetNearZ = Math.min(MAX_NEAR_Z, this.currentNearZ - STEP_FARTHER);
+    }
+
+    // Start new sweep with bead transition animation
+    this.currentBeadIndex = 0;
+    this.sweepFused = [];
+    this.beadsTransitioning = true;
+    this.startBeadTrial();
   }
 
   private showResults(): void {
@@ -650,7 +727,7 @@ export class BrockStringExercise extends BaseExercise {
     const stats = this.getSessionStats();
 
     const lines = [
-      `Brock String Complete — ${stats.trials} trials`,
+      `Brock String Complete — ${stats.sweeps} sweeps, ${stats.trials} trials`,
       '',
       `Near Point of Convergence: ${stats.npcCm} cm`,
       `Fusion rate: ${stats.fusionRate}%`,
@@ -703,10 +780,12 @@ export class BrockStringExercise extends BaseExercise {
   }
 
   private renderInstructions(): void {
-    const distanceCm = Math.round(Math.abs(this.currentZ - this.stringNearEnd.z) * 100);
+    const z = this.getBeadZ(this.currentBeadIndex, this.currentNearZ);
+    const distanceCm = Math.round(Math.abs(z - this.stringNearEnd.z) * 100);
+    const beadLabel = BEAD_LABELS[this.currentBeadIndex];
     const trialNum = this.results.length + 1;
     const lines = [
-      `Focus on the bead — see the X?    Distance: ${distanceCm} cm`,
+      `Focus on ${beadLabel} bead — see the X?    ${distanceCm} cm`,
       `Trigger = fused    A = double    Trial ${trialNum}`,
     ];
 
