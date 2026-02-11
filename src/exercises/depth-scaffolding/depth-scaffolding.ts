@@ -252,19 +252,10 @@ export class DepthScaffoldingExercise extends BaseExercise {
       this.startNextTrial();
     }
 
-    // Feedback timeout
+    // Auto-hide feedback overlay (non-blocking — next trial already started)
     if (this.showingFeedback && Date.now() > this.feedbackTimeout) {
       this.showingFeedback = false;
       this.feedbackMesh!.visible = false;
-
-      this.trialIndex++;
-      if (this.trialIndex >= TOTAL_TRIALS) {
-        this.showResults();
-      } else if (this.shouldAdvanceLevel()) {
-        this.advanceCueLevel();
-      } else {
-        this.startNextTrial();
-      }
     }
   }
 
@@ -528,6 +519,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.input?.haptic(correct ? 'confirm' : 'error');
     this.updateStaircase(correct);
     this.showFeedbackText(correct);
+    this.advanceAfterResponse();
   }
 
   private confirmCantTell(): void {
@@ -548,6 +540,19 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.input?.haptic('error');
     this.updateStaircase(false);
     this.showFeedbackText(false);
+    this.advanceAfterResponse();
+  }
+
+  /** Immediately advance to next trial — feedback overlay displays concurrently */
+  private advanceAfterResponse(): void {
+    this.trialIndex++;
+    if (this.trialIndex >= TOTAL_TRIALS) {
+      this.showResults();
+    } else if (this.shouldAdvanceLevel()) {
+      this.advanceCueLevel();
+    } else {
+      this.startNextTrial();
+    }
   }
 
   // --- Staircase ---

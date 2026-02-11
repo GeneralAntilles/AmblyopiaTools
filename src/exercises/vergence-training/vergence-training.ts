@@ -165,16 +165,10 @@ export class VergenceTrainingExercise extends BaseExercise {
       }
     }
 
+    // Auto-hide feedback overlay (non-blocking — next trial already started)
     if (this.showingFeedback && Date.now() > this.feedbackTimeout) {
       this.showingFeedback = false;
       this.feedbackMesh!.visible = false;
-
-      this.currentTrialIndex++;
-      if (this.currentTrialIndex >= TOTAL_TRIALS) {
-        this.showResults();
-      } else {
-        this.startTrial();
-      }
     }
   }
 
@@ -374,6 +368,14 @@ export class VergenceTrainingExercise extends BaseExercise {
 
     this.input?.haptic(fused ? 'confirm' : 'error');
     this.showFeedbackText(fused, direction);
+
+    // Immediately advance — feedback overlay displays concurrently
+    this.currentTrialIndex++;
+    if (this.currentTrialIndex >= TOTAL_TRIALS) {
+      this.showResults();
+    } else {
+      this.startTrial();
+    }
   }
 
   private showFeedbackText(fused: boolean, direction: VergenceDirection): void {

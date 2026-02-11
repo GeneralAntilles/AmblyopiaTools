@@ -224,11 +224,10 @@ export class BrockStringExercise extends BaseExercise {
       this.highlightRing.scale.set(scale, scale, 1);
     }
 
-    // Feedback timeout
+    // Auto-hide feedback overlay (non-blocking — next bead/sweep already started)
     if (this.showingFeedback && Date.now() > this.feedbackTimeout) {
       this.showingFeedback = false;
       this.feedbackMesh!.visible = false;
-      this.advanceTrial();
     }
   }
 
@@ -650,6 +649,9 @@ export class BrockStringExercise extends BaseExercise {
 
     this.input?.haptic(fused ? 'confirm' : 'error');
     this.showFeedbackText(fused);
+
+    // Immediately advance — feedback overlay displays concurrently
+    this.advanceTrial();
   }
 
   private showFeedbackText(fused: boolean): void {
