@@ -30,7 +30,7 @@ const CELL_COUNT = 4;
 const BOARD_PADDING = 0.04;      // padding inside board edges
 const CELL_GAP = 0.02;
 const CELL_SIZE = (BOARD_SIZE - BOARD_PADDING * 2 - CELL_GAP * (CELL_COUNT - 1)) / CELL_COUNT;
-const TILE_Z_OFFSET = 0.001;     // prevent z-fighting with board
+const TILE_Z_OFFSET = 0;         // no z-fighting: board is Layer 2, tiles are Layer 1
 
 // --- Animation ---
 const SLIDE_DURATION = 0.12;     // seconds
@@ -58,10 +58,10 @@ export class Dichoptic2048Exercise extends BaseExercise {
   private tileTextures: TileTextureCache;
   private game: Game2048;
 
-  // Scene objects — Layer 0 (both eyes)
+  // Scene objects — Layer 0 (both eyes) + Layer 2 (non-training eye)
   private envSphereMesh: THREE.Mesh | null = null;
   private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private boardMesh: THREE.Mesh | null = null;
+  private boardMesh: THREE.Mesh | null = null;         // Layer 2 (non-training)
   private boardMaterial: THREE.MeshBasicMaterial | null = null;
   private scoreMesh: THREE.Mesh | null = null;
   private scoreMaterial: THREE.MeshBasicMaterial | null = null;
@@ -368,7 +368,7 @@ export class Dichoptic2048Exercise extends BaseExercise {
     const geo = new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE);
     this.boardMesh = new THREE.Mesh(geo, this.boardMaterial);
     this.boardMesh.position.set(0, BOARD_Y, BOARD_Z);
-    this.renderer.addToBothEyes(this.boardMesh);
+    this.renderer.addToNonTrainingEye(this.boardMesh);
   }
 
   private renderBoardTexture(): THREE.CanvasTexture {
@@ -504,7 +504,7 @@ export class Dichoptic2048Exercise extends BaseExercise {
       depthWrite: false,
     });
     this.gameOverMesh = new THREE.Mesh(geo, this.gameOverMaterial);
-    this.gameOverMesh.position.set(0, BOARD_Y, BOARD_Z + 0.002);
+    this.gameOverMesh.position.set(0, BOARD_Y, BOARD_Z + 0.05);
     this.gameOverMesh.visible = false;
     this.renderer.addToBothEyes(this.gameOverMesh);
   }
