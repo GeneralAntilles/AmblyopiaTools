@@ -95,9 +95,11 @@ export class SettingsStore {
 
   async saveSettings(settings: Partial<UserSettings>): Promise<void> {
     const db = await this.dbPromise;
-    const current = await this.getSettings();
-    const merged = { ...current, ...settings };
-    await db.put(SETTINGS_STORE, merged, 'user-settings');
+    // Read and write in one transaction so overlapping saves can't drop each other's fields
+    const tx = db.transaction(SETTINGS_STORE, 'readwrite');
+    const stored = await tx.store.get('user-settings');
+    await tx.store.put({ ...DEFAULT_SETTINGS, ...(stored ?? {}), ...settings }, 'user-settings');
+    await tx.done;
   }
 
   async saveSetting<K extends keyof UserSettings>(key: K, value: UserSettings[K]): Promise<void> {
