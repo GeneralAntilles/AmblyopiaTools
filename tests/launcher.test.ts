@@ -98,6 +98,27 @@ describe('launcher', () => {
     expect(rows[2]).toContain('12 pages, 24% contrast');
   });
 
+  it('first run walks through the wizard to the eye balance measurement', async () => {
+    const { store, launch } = await openLauncher({ setupCompleted: false });
+    const launched = launch();
+
+    // Welcome → eye choice → measure
+    const click = async (id: string) => {
+      await new Promise((r) => setTimeout(r, 10));
+      document.getElementById(id)!.click();
+    };
+    await click('wizard-next');
+    await new Promise((r) => setTimeout(r, 10));
+    document.querySelector<HTMLElement>('.wizard-eye-btn[data-eye="left"]')!.click();
+    await click('wizard-next');
+    await click('wizard-baseline');
+    await launched;
+
+    expect(document.getElementById('setup-wizard')!.classList.contains('hidden')).toBe(true);
+    expect(document.querySelector('.exercise-card.selected')?.getAttribute('data-exercise')).toBe('contrast-balance');
+    expect(await store.getSettings()).toMatchObject({ setupCompleted: true, trainingEye: 'left' });
+  });
+
   it('passes the loaded reading text to the session', async () => {
     const { launch } = await openLauncher();
     const launcher = await launch();

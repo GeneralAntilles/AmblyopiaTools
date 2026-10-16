@@ -29,12 +29,20 @@ export interface SessionEnvironment {
   hud: SessionHud;
 }
 
+export interface ContrastChange {
+  from: number;
+  to: number;
+  source: 'calibration' | 'progression';
+}
+
 export interface SessionOutcome {
   definition: ExerciseDefinition;
   stats: SessionStats;
   record: SessionRecord;
   /** Present when auto-progression is enabled. */
   progression?: ProgressionDecision;
+  /** Set when the session changed the stored fellow-eye contrast. */
+  contrastChange?: ContrastChange;
 }
 
 interface ActiveSession {
@@ -128,8 +136,22 @@ export class SessionHost {
     });
     const record: SessionRecord = { id, exercise: definition.id, startTime, endTime, durationMs: stats.durationMs, stats };
 
-    const settings = await this.store.getSettings();
+    let settings = await this.store.getSettings();
     let progression: ProgressionDecision | undefined;
+    let contrastChange: ContrastChange | undefined;
+
+    const applied = definition.applyResult?.(stats, settings);
+    if (applied) {
+      if (applied.contrastDominant !== undefined && applied.contrastDominant !== settings.contrastDominant) {
+        contrastChange = { from: settings.contrastDominant, to: applied.contrastDominant, source: 'calibration' };
+        applied.contrastProgressionHistory = [
+          ...settings.contrastProgressionHistory.slice(-99),
+          { timestamp: endTime, contrast: applied.contrastDominant, exercise: definition.id, auto: false },
+        ];
+      }
+      await this.store.saveSettings(applied);
+      settings = await this.store.getSettings();
+    }
 
     if (settings.contrastProgressionEnabled) {
       progression = evaluateProgression(stats, definition, settings.contrastDominant, {
@@ -137,6 +159,7 @@ export class SessionHost {
       });
 
       if (progression.shouldIncrement) {
+        contrastChange = { from: progression.previousContrast, to: progression.newContrast, source: 'progression' };
         await this.store.saveSettings({
           contrastDominant: progression.newContrast,
           contrastProgressionHistory: [
@@ -158,6 +181,6 @@ export class SessionHost {
       await this.store.saveSetting('lastCompletedExerciseIndex', orderIndex);
     }
 
-    return { definition, stats, record, progression };
+    return { definition, stats, record, progression, contrastChange };
   }
 }

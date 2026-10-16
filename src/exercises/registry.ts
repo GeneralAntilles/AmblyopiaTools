@@ -12,11 +12,13 @@ import { dichoptic2048Definition } from './dichoptic-2048/definition';
 import { suppressionCheckDefinition } from './suppression-check/definition';
 import { brockStringDefinition } from './brock-string/definition';
 import { vergenceTrainingDefinition } from './vergence-training/definition';
+import { contrastBalanceDefinition } from './contrast-balance/definition';
 
 export const EXERCISES: readonly ExerciseDefinition[] = [
   readingDefinition,
   depthScaffoldingDefinition,
   dichoptic2048Definition,
+  contrastBalanceDefinition,
   suppressionCheckDefinition,
   brockStringDefinition,
   vergenceTrainingDefinition,

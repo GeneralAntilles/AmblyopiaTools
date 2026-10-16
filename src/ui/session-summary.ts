@@ -11,7 +11,7 @@ import type { SummaryRow } from '../exercises/definition';
 import { escapeHtml, formatDuration } from '../utils/format';
 
 export function showSessionSummary(container: HTMLElement, outcome: SessionOutcome): void {
-  const { definition, stats, progression } = outcome;
+  const { definition, stats, progression, contrastChange } = outcome;
   container.style.display = 'block';
 
   const statsContainer = container.querySelector('#summary-stats');
@@ -23,10 +23,14 @@ export function showSessionSummary(container: HTMLElement, outcome: SessionOutco
     ...definition.summarize(stats),
   ];
 
-  if (progression?.shouldIncrement) {
-    const prev = Math.round(progression.previousContrast * 100);
-    const next = Math.round(progression.newContrast * 100);
-    rows.push({ label: 'Contrast Progression', value: `${prev}% → ${next}%`, highlight: true });
+  if (contrastChange) {
+    const from = Math.round(contrastChange.from * 100);
+    const to = Math.round(contrastChange.to * 100);
+    rows.push({
+      label: contrastChange.source === 'calibration' ? 'Fellow-Eye Contrast Set' : 'Contrast Progression',
+      value: `${from}% → ${to}%`,
+      highlight: true,
+    });
   } else if (progression && wasDichoptic(stats)) {
     // Say why a dichoptic session didn't move contrast
     rows.push({ label: 'Contrast Progression', value: `Unchanged — ${progression.reason.toLowerCase()}` });

@@ -8,6 +8,7 @@
  */
 
 import type { BaseExercise, SessionStats } from './base-exercise';
+import type { UserSettings } from '../core/settings-store';
 import type { ReadingSource } from './monocular-reading/monocular-reading';
 
 export type ExerciseTag = 'monocular' | 'dichoptic' | 'binocular' | 'diagnostic';
@@ -47,6 +48,11 @@ export interface ExerciseDefinition {
    * contrast increase, or null if it does.
    */
   progressionBlocker?(stats: SessionStats): string | null;
+  /**
+   * Settings this session's result should change (e.g. a calibration
+   * setting the starting contrast). Applied before progression.
+   */
+  applyResult?(stats: SessionStats, settings: Readonly<UserSettings>): Partial<UserSettings> | null;
 }
 
 /** Read a numeric stat, or undefined if absent/non-numeric. */

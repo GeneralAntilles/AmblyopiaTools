@@ -465,11 +465,13 @@ export class Launcher {
 
       const showStep3 = () => {
         card.innerHTML = `
-          <h2>Ready to begin</h2>
-          <p>We recommend running a <strong>Suppression Check</strong> first to establish your baseline.
-          It takes about 2 minutes.</p>
-          <button class="wizard-btn wizard-btn-primary" id="wizard-baseline">Run Suppression Check</button>
-          <button class="wizard-btn wizard-btn-secondary" id="wizard-skip">Skip for Now</button>
+          <h2>Measure your eye balance</h2>
+          <p>A two-minute test in the headset finds how much to weaken your fellow eye so both eyes
+          can work together. Dichoptic exercises start from that level and step up as you improve.</p>
+          <p style="color:var(--text-tertiary);font-size:13px;">You'll see stripes and flick the stick
+          along the direction they run. Re-run it any time from <strong>Eye Balance</strong>.</p>
+          <button class="wizard-btn wizard-btn-primary" id="wizard-baseline">Measure Eye Balance</button>
+          <button class="wizard-btn wizard-btn-secondary" id="wizard-skip">Skip — start at 20%</button>
         `;
 
         const finish = async (exercise?: string) => {
@@ -486,7 +488,7 @@ export class Launcher {
           resolve();
         };
 
-        document.getElementById('wizard-baseline')!.addEventListener('click', () => finish('suppression-check'));
+        document.getElementById('wizard-baseline')!.addEventListener('click', () => finish('contrast-balance'));
         document.getElementById('wizard-skip')!.addEventListener('click', () => finish());
       };
 

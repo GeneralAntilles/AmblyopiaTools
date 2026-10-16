@@ -33,6 +33,7 @@ npx serve dist
 | Reading | Monocular / dichoptic | Your own text or EPUB to the training eye; fellow eye sees the page at reduced contrast (dichoptic) or a blank/fixation/noise panel |
 | Dichoptic 2048 | Dichoptic | 2048 with tiles split between the eyes, the fellow eye’s at reduced contrast (or all to the training eye, as a setting) |
 | Depth Scaffolding | Binocular | Pick the closest object while monocular depth cues are stripped away, leaving only stereo disparity |
+| Eye Balance | Diagnostic | Rivalry staircase that finds the fellow-eye contrast where both eyes compete equally; sets where dichoptic training starts (first-run wizard) |
 | Suppression Check | Diagnostic | Worth 4-dot test at three distances, with vergence offset measurement |
 | Brock String | Binocular | Progressive near-point-of-convergence staircase |
 | Vergence Training | Binocular | Convergence/divergence staircase with disparity rings |
