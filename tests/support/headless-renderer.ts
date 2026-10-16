@@ -70,6 +70,12 @@ export class HeadlessRenderer implements EyeRenderer {
     return ray ? { origin: ray.origin.clone(), direction: ray.direction.clone() } : null;
   }
 
+  /** Visible meshes shown to this eye and not the other. */
+  eyeOnlyMeshes(eye: 'training' | 'fellow'): THREE.Mesh[] {
+    const layer = eye === 'training' ? LAYER_TRAINING : LAYER_NON_TRAINING;
+    return this.visibleMeshes(eye).filter((m) => m.layers.mask === 1 << layer);
+  }
+
   /** Meshes the given eye would render: visible all the way up, on a layer that eye sees. */
   visibleMeshes(eye: 'training' | 'fellow'): THREE.Mesh[] {
     const camera = new THREE.Layers();

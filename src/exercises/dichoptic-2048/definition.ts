@@ -9,25 +9,35 @@ export const dichoptic2048Definition: ExerciseDefinition = {
   id: 'dichoptic-2048',
   name: 'Dichoptic 2048',
   description:
-    'Play 2048 with the board visible to both eyes but tiles only to your training eye. Forces binocular cooperation during gameplay.',
+    'Play 2048 with the tiles split between your eyes — the fellow eye’s share at reduced contrast — so seeing the whole board takes both eyes working together.',
   tag: 'dichoptic',
+  settingsSection: 'game-2048-settings-section',
 
   create: () => new Dichoptic2048Exercise(),
 
+  // Sessions recorded before the dichoptic setting existed have no mode and were training-eye only
+  sessionName: (stats) => (stats.mode === 'dichoptic' ? 'Dichoptic 2048' : '2048 (training eye only)'),
+
   summarize: (stats) => {
+    const contrast = num(stats, 'fellowEyeContrast');
     const rows: SummaryRow[] = [
       ...statRow(stats, 'score', 'Score'),
       ...statRow(stats, 'highestTile', 'Best Tile'),
       ...statRow(stats, 'moveCount', 'Moves'),
+      ...(contrast ? [{ label: 'Fellow-Eye Contrast', value: `${contrast}%` }] : []),
     ];
     if (stats.won) rows.push({ label: 'Result', value: 'Reached 2048!', highlight: true });
     return rows;
   },
 
   historyDetail: (stats) => {
+    const parts: string[] = [];
     const score = num(stats, 'score');
     const best = num(stats, 'highestTile');
-    return score !== undefined && best !== undefined ? [`${score} pts, best ${best}`] : [];
+    const contrast = num(stats, 'fellowEyeContrast');
+    if (score !== undefined && best !== undefined) parts.push(`${score} pts, best ${best}`);
+    if (contrast) parts.push(`${contrast}% contrast`);
+    return parts;
   },
 
   progressionBlocker: (stats) => {

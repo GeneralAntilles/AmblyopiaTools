@@ -18,6 +18,8 @@ export interface UserSettings {
   lineHeight: number;
   fontFamily: string;
   nonTrainingDisplay: 'blank' | 'fixation' | 'pattern' | 'dichoptic';
+  /** 2048: split tiles between eyes (fellow eye at reduced contrast) vs. training eye only */
+  dichoptic2048: boolean;
   lastExercise: string;
   contrastDominant: number;
   contrastAmblyopic: number;
@@ -54,6 +56,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   lineHeight: 1.6,
   fontFamily: 'sans-serif',
   nonTrainingDisplay: 'blank',
+  dichoptic2048: true,
   lastExercise: 'monocular-reading',
   contrastDominant: 0.2,
   contrastAmblyopic: 1.0,

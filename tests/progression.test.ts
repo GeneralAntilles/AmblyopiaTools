@@ -83,7 +83,7 @@ describe('contrast progression', () => {
   });
 
   it('2048 with tiles hidden from the fellow eye does not count as dichoptic', async () => {
-    const h = await createHarness({ contrastDominant: 0.3 });
+    const h = await createHarness({ contrastDominant: 0.3, dichoptic2048: false });
     const outcome = await play2048For(h, 6);
 
     expect(outcome?.stats.moveCount).toBeGreaterThan(30);

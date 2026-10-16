@@ -311,14 +311,13 @@ export class Launcher {
     this.bindSelect('font-family', settings.fontFamily, (val) =>
       this.store.saveSetting('fontFamily', val)
     );
-    this.bindSelect('non-training-display', settings.nonTrainingDisplay, (val) => {
-      this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern' | 'dichoptic');
-      this.updateContrastVisibility();
-    });
-
-    // Contrast slider for dichoptic mode
-    this.bindContrastSlider(settings.contrastDominant);
-    this.updateContrastVisibility();
+    this.bindSelect('non-training-display', settings.nonTrainingDisplay, (val) =>
+      this.store.saveSetting('nonTrainingDisplay', val as 'blank' | 'fixation' | 'pattern' | 'dichoptic')
+    );
+    this.bindCheckbox('dichoptic-2048', settings.dichoptic2048, (val) =>
+      this.store.saveSetting('dichoptic2048', val)
+    );
+    this.bindContrastSlider();
 
     const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
     if (textarea) {
@@ -349,28 +348,22 @@ export class Launcher {
     });
   }
 
-  private bindContrastSlider(value: number): void {
-    const slider = document.getElementById('contrast-dominant') as HTMLInputElement | null;
-    const label = document.getElementById('contrast-dominant-value');
-    if (!slider) return;
-
-    const pct = Math.round(value * 100);
-    slider.value = String(pct);
-    if (label) label.textContent = `${pct}%`;
-
-    slider.addEventListener('input', () => {
-      const num = parseInt(slider.value, 10);
-      if (label) label.textContent = `${num}%`;
-      this.store.saveSetting('contrastDominant', num / 100);
-    });
+  private bindCheckbox(id: string, value: boolean, onChange: (val: boolean) => void): void {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (!el) return;
+    el.checked = value;
+    el.addEventListener('change', () => onChange(el.checked));
   }
 
-  private updateContrastVisibility(): void {
-    const contrastSection = document.getElementById('contrast-settings');
-    const displaySelect = document.getElementById('non-training-display') as HTMLSelectElement | null;
-    if (contrastSection && displaySelect) {
-      contrastSection.style.display = displaySelect.value === 'dichoptic' ? 'grid' : 'none';
-    }
+  private bindContrastSlider(): void {
+    const slider = document.getElementById('contrast-dominant') as HTMLInputElement | null;
+    if (!slider) return;
+
+    slider.addEventListener('input', () => {
+      const pct = parseInt(slider.value, 10);
+      this.updateContrastProgress(pct / 100);
+      this.store.saveSetting('contrastDominant', pct / 100);
+    });
   }
 
   private bindEnterVR(): void {
@@ -414,18 +407,16 @@ export class Launcher {
     }
   }
 
+  /** Show fellow-eye contrast on the slider (filled up to the current level) and its label. */
   private updateContrastProgress(contrast: number): void {
     const pct = Math.round(contrast * 100);
     const label = document.getElementById('contrast-current');
-    const bar = document.getElementById('contrast-bar-fill');
-    if (label) label.textContent = `${pct}%`;
-    if (bar) bar.style.width = `${pct}%`;
-
-    // Also update the contrast slider if visible
     const slider = document.getElementById('contrast-dominant') as HTMLInputElement | null;
-    const sliderLabel = document.getElementById('contrast-dominant-value');
-    if (slider) slider.value = String(pct);
-    if (sliderLabel) sliderLabel.textContent = `${pct}%`;
+    if (label) label.textContent = `${pct}%`;
+    if (slider) {
+      slider.value = String(pct);
+      slider.style.setProperty('--fill', `${pct}%`);
+    }
   }
 
   private async showSetupWizard(settings: UserSettings): Promise<void> {

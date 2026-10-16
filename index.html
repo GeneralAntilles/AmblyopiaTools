@@ -369,7 +369,7 @@
       appearance: none;
       width: 100%;
       height: 6px;
-      background: var(--border);
+      background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--border) var(--fill, 0%));
       border-radius: 3px;
       outline: none;
       cursor: pointer;
@@ -407,23 +407,18 @@
       border-radius: 3px;
     }
 
-    /* ── Contrast Progress ─────────────────────────────────── */
-    .contrast-progress { margin-top: 12px; }
-
-    .contrast-bar {
-      width: 100%;
+    input[type="range"]::-moz-range-progress {
       height: 6px;
-      background: var(--bg-card-hover);
-      border-radius: 3px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
-
-    .contrast-bar-fill {
-      height: 100%;
       background: var(--accent);
       border-radius: 3px;
-      transition: width 0.5s ease-out;
+    }
+
+    /* ── Contrast Progress ─────────────────────────────────── */
+    .contrast-progress {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
     .contrast-label {
@@ -722,17 +717,16 @@
             <input type="checkbox" id="auto-progression" checked />
             Auto Contrast Progression
           </label>
-          <span class="setting-hint">Increase fellow eye contrast +2% after successful sessions</span>
+          <span class="setting-hint">Raise fellow eye contrast +2% after each successful dichoptic session</span>
         </div>
       </div>
       <div class="contrast-progress" id="contrast-progress">
         <div class="contrast-label">
-          <span>Fellow Eye Contrast: <strong id="contrast-current">20%</strong></span>
+          <label for="contrast-dominant">Fellow Eye Contrast: <strong id="contrast-current">20%</strong></label>
           <span>Target: 100%</span>
         </div>
-        <div class="contrast-bar">
-          <div class="contrast-bar-fill" id="contrast-bar-fill" style="width: 20%"></div>
-        </div>
+        <input type="range" id="contrast-dominant" min="0" max="100" value="20" step="1" />
+        <span class="setting-hint">How strongly dichoptic exercises show things to your fellow eye. Lower makes your training eye do more of the work.</span>
       </div>
     </div>
 
@@ -765,19 +759,6 @@
           </select>
         </div>
       </div>
-      <div class="settings-grid" id="contrast-settings" style="display:none">
-        <div class="setting-group">
-          <label for="contrast-dominant">Fellow Eye Contrast</label>
-          <input type="range" id="contrast-dominant" min="0" max="100" value="20" step="5" />
-          <span id="contrast-dominant-value" class="setting-hint">20%</span>
-        </div>
-        <div class="setting-group">
-          <span class="setting-hint" style="line-height:1.5;">
-            Lower = harder for fellow eye (more therapeutic).<br/>
-            Increase gradually over sessions as binocular function improves.
-          </span>
-        </div>
-      </div>
       <h2>Reading Source</h2>
       <div class="file-upload" id="file-upload-area">
         <input type="file" id="file-input" accept=".epub,.txt,.text" style="display:none" />
@@ -796,6 +777,17 @@ Vision therapy exercises like monocular reading help strengthen the neural pathw
 Regular practice sessions of 15-20 minutes are recommended. Take breaks if you experience any discomfort, eye strain, or headaches. Consistency over time produces the best results.
 
 Dichoptic training — where each eye receives different stimuli — has been shown in research to improve binocular function more effectively than patching alone. This platform provides several dichoptic exercises alongside traditional monocular training.</textarea>
+    </div>
+
+    <div class="section hidden" id="game-2048-settings-section">
+      <h2>2048 Settings</h2>
+      <div class="setting-group">
+        <label for="dichoptic-2048" style="display:flex;align-items:center;gap:10px;">
+          <input type="checkbox" id="dichoptic-2048" checked />
+          Split tiles between eyes (dichoptic)
+        </label>
+        <span class="setting-hint">On: about half the tiles go to your fellow eye at the contrast above, so you need both eyes to see the board. Off: every tile goes to your training eye, like playing with a patch.</span>
+      </div>
     </div>
 
     <div id="webxr-status"></div>

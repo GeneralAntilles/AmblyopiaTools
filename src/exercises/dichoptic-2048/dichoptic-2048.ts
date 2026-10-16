@@ -2,21 +2,28 @@
  * Dichoptic 2048 Exercise
  *
  * The classic 2048 tile-merging puzzle, adapted for amblyopia therapy.
- * Both eyes see the board grid, score, and instructions. Only the
- * training (amblyopic) eye sees the numbered tiles — forcing the brain
- * to keep both eyes active to play the game.
+ * Both eyes see the board grid, score and instructions.
+ *
+ * Dichoptic mode (default): tiles are split between the eyes — about half
+ * go to the training eye at full contrast, half to the fellow eye at the
+ * current fellow-eye contrast. Seeing the whole board takes both eyes, and
+ * the fellow eye's share is deliberately weaker (the Li et al. Tetris
+ * design applied to 2048). A tile keeps its eye for its whole life.
+ *
+ * Training-eye-only mode: every tile goes to the training eye; the fellow
+ * eye sees an empty grid. Equivalent to patching with a game.
  *
  * Controls:
  *   - Thumbstick left/right/up/down: slide tiles
+ *   - A / B: lower / raise fellow-eye contrast (dichoptic, during play)
  *   - A button: new game (after game over)
- *   - Grip: exit
  */
 
 import * as THREE from 'three';
-import { BaseExercise, type ExerciseStats } from '../base-exercise';
+import { BaseExercise, type ExerciseStats, type EyeTarget } from '../base-exercise';
 import { TextPanel, instructionText, resultsText } from '../../ui/text-panel';
 import { COLORS, PANELS, CONTENT_Y } from '../../ui/vr-constants';
-import { Game2048, type Direction, type GameState } from './game-logic';
+import { Game2048, type Direction, type GameState, type TileState } from './game-logic';
 import { TileTextureCache } from './tile-renderer';
 
 // --- Board geometry ---
@@ -43,43 +50,97 @@ function easeOutBack(t: number): number {
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
+const CONTRAST_STEP = 0.05;
+
+/** Tile meshes for one eye. A board holds at most 16 tiles. */
+class TilePool {
+  readonly meshes: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
+  used = 0;
+
+  constructor(add: (mesh: THREE.Mesh) => void, opacity: number) {
+    const geo = new THREE.PlaneGeometry(CELL_SIZE * 0.95, CELL_SIZE * 0.95);
+    for (let i = 0; i < 16; i++) {
+      const mesh = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({
+        transparent: true,
+        depthWrite: false,
+        opacity,
+      }));
+      mesh.visible = false;
+      add(mesh);
+      this.meshes.push(mesh);
+    }
+    geo.dispose();
+  }
+
+  reset(): void {
+    this.used = 0;
+    for (const m of this.meshes) m.visible = false;
+  }
+
+  next(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+    return this.meshes[this.used++];
+  }
+
+  setOpacity(opacity: number): void {
+    for (const m of this.meshes) m.material.opacity = opacity;
+  }
+
+  /** Textures belong to the shared cache, not to the materials. */
+  detachTextures(): void {
+    for (const m of this.meshes) m.material.map = null;
+  }
+}
+
 export class Dichoptic2048Exercise extends BaseExercise {
   private tileTextures = this.own(new TileTextureCache());
   private game = new Game2048();
+  private dichoptic = true;
 
-  // Both eyes
   private scorePanel!: TextPanel;
   private gameOverPanel!: TextPanel;
 
-  // Training eye only
-  private tileMeshes: THREE.Mesh[] = [];
-  private tileMaterials: THREE.MeshBasicMaterial[] = [];
+  private trainingTiles!: TilePool;
+  private fellowTiles: TilePool | null = null;
+  private meshByTileId = new Map<number, THREE.Mesh>();
 
   // Animation state
   private animPhase: 'idle' | 'slide' | 'spawn' = 'idle';
   private animProgress = 0;
-  private spawnTileId: number = -1;
+  private spawnTileId = -1;
 
   protected setup(): void {
+    this.dichoptic = this.ctx.settings.dichoptic2048;
     this.game.reset();
 
     this.tileTextures.prerender();
     this.addEnvironment();
     this.createBoard();
-    this.createTileMeshPool();
+
+    const addTo = (eye: EyeTarget) => (mesh: THREE.Mesh) => {
+      mesh.position.z = BOARD_Z + TILE_Z_OFFSET;
+      this.add(mesh, eye);
+    };
+    this.trainingTiles = new TilePool(addTo('training'), 1);
+    if (this.dichoptic) {
+      this.fellowTiles = new TilePool(addTo('fellow'), this.ctx.contrast.getDominantContrast());
+    }
 
     this.scorePanel = this.panel(0.6);
     this.scorePanel.position.set(0, BOARD_Y + BOARD_SIZE / 2 + 0.08, BOARD_Z);
 
     this.panel(PANELS.INSTRUCTION_WIDTH)
-      .setText(instructionText(['Flick stick to slide tiles — Grip to exit']))
+      .setText(instructionText([
+        this.dichoptic
+          ? 'Flick stick to slide tiles — A/B fellow-eye contrast — Grip to exit'
+          : 'Flick stick to slide tiles — Grip to exit',
+      ]))
       .position.set(0, BOARD_Y - BOARD_SIZE / 2 - 0.08, BOARD_Z);
 
     this.gameOverPanel = this.panel(0.7);
     this.gameOverPanel.position.set(0, BOARD_Y, BOARD_Z + 0.05);
     this.gameOverPanel.visible = false;
 
-    this.syncTileMeshes();
+    this.placeTiles(null);
     this.renderScore();
 
     this.onInput((action) => {
@@ -96,25 +157,26 @@ export class Dichoptic2048Exercise extends BaseExercise {
         case 'page-forward': direction = 'right'; break;
         case 'chapter-prev': direction = 'up';    break;
         case 'chapter-next': direction = 'down';  break;
+        case 'button-a':     this.adjustContrast(-CONTRAST_STEP); break;
+        case 'button-b':     this.adjustContrast(CONTRAST_STEP);  break;
       }
 
       if (direction) this.handleMove(direction);
     });
 
-    this.ctx.hud.setStatus('2048 — flick to slide, A = new game, grip exit');
+    this.updateStatus();
   }
 
   protected onUpdate(dt: number): void {
     if (this.animPhase === 'slide') {
       this.animProgress = Math.min(1, this.animProgress + dt / SLIDE_DURATION);
-      const t = easeOutCubic(this.animProgress);
-      this.renderTilesInterpolated(t);
+      this.placeTiles(easeOutCubic(this.animProgress));
 
       if (this.animProgress >= 1) {
         // Slide complete — start spawn animation
         this.animPhase = 'spawn';
         this.animProgress = 0;
-        this.syncTileMeshes();
+        this.placeTiles(null);
       }
       return;
     }
@@ -122,11 +184,11 @@ export class Dichoptic2048Exercise extends BaseExercise {
     if (this.animPhase === 'spawn') {
       this.animProgress = Math.min(1, this.animProgress + dt / SPAWN_DURATION);
       const scale = easeOutBack(this.animProgress);
-      this.applySpawnScale(scale);
+      this.meshByTileId.get(this.spawnTileId)?.scale.set(scale, scale, 1);
 
       if (this.animProgress >= 1) {
         this.animPhase = 'idle';
-        this.syncTileMeshes();
+        this.placeTiles(null);
 
         // Check game state after animation
         const state = this.game.getState();
@@ -140,14 +202,21 @@ export class Dichoptic2048Exercise extends BaseExercise {
     }
   }
 
+  protected onTeardown(): void {
+    this.trainingTiles.detachTextures();
+    this.fellowTiles?.detachTextures();
+  }
+
   getStats(): ExerciseStats {
     const state = this.game.getState();
     return {
+      mode: this.dichoptic ? 'dichoptic' : 'training-eye',
       score: state.score,
       highestTile: state.highestTile,
       moveCount: state.moveCount,
       won: state.won,
       gameOver: state.gameOver,
+      fellowEyeContrast: this.dichoptic ? Math.round(this.ctx.contrast.getDominantContrast() * 100) : 0,
     };
   }
 
@@ -164,10 +233,8 @@ export class Dichoptic2048Exercise extends BaseExercise {
     this.ctx.input.haptic('tick');
 
     // Find the newly spawned tile for animation
-    const spawned = result.tiles.find((t) => t.isNew);
-    this.spawnTileId = spawned?.id ?? -1;
+    this.spawnTileId = result.tiles.find((t) => t.isNew)?.id ?? -1;
 
-    // Start slide animation
     this.animPhase = 'slide';
     this.animProgress = 0;
 
@@ -178,12 +245,35 @@ export class Dichoptic2048Exercise extends BaseExercise {
     this.game.reset();
     this.gameOverPanel.visible = false;
     this.animPhase = 'idle';
-    this.syncTileMeshes();
+    this.placeTiles(null);
     this.renderScore();
     this.ctx.input.haptic('confirm');
   }
 
-  // --- Coordinate Mapping ---
+  private adjustContrast(delta: number): void {
+    if (!this.fellowTiles) return;
+    const contrast = this.ctx.contrast;
+    contrast.setDominantContrast(Math.round((contrast.getDominantContrast() + delta) * 100) / 100);
+    this.fellowTiles.setOpacity(contrast.getDominantContrast());
+    this.ctx.input.haptic('tick');
+    this.updateStatus();
+  }
+
+  private updateStatus(): void {
+    if (this.dichoptic) {
+      const pct = Math.round(this.ctx.contrast.getDominantContrast() * 100);
+      this.ctx.hud.setStatus(`2048 · fellow eye ${pct}% — A/B adjust, grip exit`);
+    } else {
+      this.ctx.hud.setStatus('2048 — flick to slide, A = new game, grip exit');
+    }
+  }
+
+  // --- Tile Rendering ---
+
+  /** Which eye a tile is shown to. Stable for a tile's lifetime (merges keep the left tile's id). */
+  private poolFor(tile: TileState): TilePool {
+    return this.fellowTiles && tile.id % 2 === 0 ? this.fellowTiles : this.trainingTiles;
+  }
 
   private cellToWorld(row: number, col: number): { x: number; y: number } {
     const boardLeft = -BOARD_SIZE / 2 + BOARD_PADDING;
@@ -195,80 +285,40 @@ export class Dichoptic2048Exercise extends BaseExercise {
     };
   }
 
-  // --- Tile Rendering ---
+  /**
+   * Lay out tile meshes. t = null places every tile at rest; otherwise
+   * existing tiles slide from their previous cell (new spawns stay hidden).
+   */
+  private placeTiles(t: number | null): void {
+    this.trainingTiles.reset();
+    this.fellowTiles?.reset();
+    this.meshByTileId.clear();
 
-  private syncTileMeshes(): void {
-    const tiles = this.game.getState().tiles;
+    for (const tile of this.game.getState().tiles) {
+      if (t !== null && tile.isNew) continue;
 
-    for (let i = 0; i < 16; i++) {
-      this.tileMeshes[i].visible = false;
-    }
-
-    for (let i = 0; i < tiles.length && i < 16; i++) {
-      const tile = tiles[i];
-      const mesh = this.tileMeshes[i];
-      const mat = this.tileMaterials[i];
-      const pos = this.cellToWorld(tile.row, tile.col);
-
-      mesh.position.set(pos.x, pos.y, BOARD_Z + TILE_Z_OFFSET);
-      mesh.scale.set(1, 1, 1);
-      mesh.visible = true;
-
-      const tex = this.tileTextures.get(tile.value);
-      if (mat.map !== tex) {
-        mat.map = tex;
-        mat.needsUpdate = true;
-      }
-    }
-  }
-
-  private renderTilesInterpolated(t: number): void {
-    const tiles = this.game.getState().tiles;
-
-    for (let i = 0; i < 16; i++) {
-      this.tileMeshes[i].visible = false;
-    }
-
-    // Render non-new tiles with interpolation
-    let meshIndex = 0;
-    for (const tile of tiles) {
-      if (tile.isNew || meshIndex >= 16) continue;
-
-      const mesh = this.tileMeshes[meshIndex];
-      const mat = this.tileMaterials[meshIndex];
-
-      const from = this.cellToWorld(tile.prevRow, tile.prevCol);
+      const mesh = this.poolFor(tile).next();
       const to = this.cellToWorld(tile.row, tile.col);
-
-      mesh.position.set(
-        from.x + (to.x - from.x) * t,
-        from.y + (to.y - from.y) * t,
-        BOARD_Z + TILE_Z_OFFSET,
-      );
+      if (t === null) {
+        mesh.position.x = to.x;
+        mesh.position.y = to.y;
+      } else {
+        const from = this.cellToWorld(tile.prevRow, tile.prevCol);
+        mesh.position.x = from.x + (to.x - from.x) * t;
+        mesh.position.y = from.y + (to.y - from.y) * t;
+      }
       mesh.scale.set(1, 1, 1);
       mesh.visible = true;
 
-      // Show pre-merge value during most of the animation
-      const displayValue = tile.merged && t < 0.7 ? tile.value / 2 : tile.value;
-      const tex = this.tileTextures.get(displayValue);
-      if (mat.map !== tex) {
-        mat.map = tex;
-        mat.needsUpdate = true;
+      // Show pre-merge value during most of the slide
+      const value = t !== null && tile.merged && t < 0.7 ? tile.value / 2 : tile.value;
+      const tex = this.tileTextures.get(value);
+      if (mesh.material.map !== tex) {
+        mesh.material.map = tex;
+        mesh.material.needsUpdate = true;
       }
 
-      meshIndex++;
-    }
-  }
-
-  private applySpawnScale(scale: number): void {
-    const tiles = this.game.getState().tiles;
-    const spawnIndex = tiles.findIndex((t) => t.id === this.spawnTileId);
-    if (spawnIndex < 0) return;
-
-    // Find which mesh corresponds to the spawn tile in syncTileMeshes ordering
-    // After syncTileMeshes, tiles[i] maps to tileMeshes[i]
-    if (spawnIndex < 16) {
-      this.tileMeshes[spawnIndex].scale.set(scale, scale, 1);
+      this.meshByTileId.set(tile.id, mesh);
     }
   }
 
@@ -346,24 +396,6 @@ export class Dichoptic2048Exercise extends BaseExercise {
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     return texture;
-  }
-
-  private createTileMeshPool(): void {
-    const geo = new THREE.PlaneGeometry(CELL_SIZE * 0.95, CELL_SIZE * 0.95);
-
-    for (let i = 0; i < 16; i++) {
-      const mat = new THREE.MeshBasicMaterial({
-        transparent: true,
-        depthWrite: false,
-      });
-      const mesh = new THREE.Mesh(geo.clone(), mat);
-      mesh.visible = false;
-      mesh.position.set(0, 0, BOARD_Z + TILE_Z_OFFSET);
-      this.add(mesh, 'training');
-      this.tileMeshes.push(mesh);
-      this.tileMaterials.push(mat);
-    }
-    geo.dispose();
   }
 
   // --- UI Rendering ---

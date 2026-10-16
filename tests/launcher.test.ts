@@ -43,8 +43,33 @@ describe('launcher', () => {
     await launch();
     expect(isShown('reading-settings-section')).toBe(true);
 
+    document.querySelector<HTMLElement>('.exercise-card[data-exercise="dichoptic-2048"]')!.click();
+    expect(isShown('reading-settings-section')).toBe(false);
+    expect(isShown('game-2048-settings-section')).toBe(true);
+
     document.querySelector<HTMLElement>('.exercise-card[data-exercise="brock-string"]')!.click();
     expect(isShown('reading-settings-section')).toBe(false);
+    expect(isShown('game-2048-settings-section')).toBe(false);
+  });
+
+  it('saves the 2048 dichoptic toggle and the fellow-eye contrast slider', async () => {
+    const { store, launch } = await openLauncher({ contrastDominant: 0.3 });
+    await launch();
+
+    const slider = document.getElementById('contrast-dominant') as HTMLInputElement;
+    expect(slider.value).toBe('30');
+    expect(text('#contrast-current')).toBe('30%');
+    slider.value = '42';
+    slider.dispatchEvent(new Event('input'));
+
+    const toggle = document.getElementById('dichoptic-2048') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await store.getSettings()).toMatchObject({ contrastDominant: 0.42, dichoptic2048: false });
+    expect(text('#contrast-current')).toBe('42%');
   });
 
   it('renders history written by earlier versions of the app', async () => {
