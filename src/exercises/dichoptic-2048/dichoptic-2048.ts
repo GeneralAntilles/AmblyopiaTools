@@ -131,8 +131,8 @@ export class Dichoptic2048Exercise extends BaseExercise {
     this.panel(PANELS.INSTRUCTION_WIDTH)
       .setText(instructionText([
         this.dichoptic
-          ? 'Flick stick to slide tiles — A/B fellow-eye contrast — Grip to exit'
-          : 'Flick stick to slide tiles — Grip to exit',
+          ? 'Flick stick to slide tiles — A/B fellow-eye contrast — Grip for menu'
+          : 'Flick stick to slide tiles — Grip for menu',
       ]))
       .position.set(0, BOARD_Y - BOARD_SIZE / 2 - 0.08, BOARD_Z);
 
@@ -262,9 +262,9 @@ export class Dichoptic2048Exercise extends BaseExercise {
   private updateStatus(): void {
     if (this.dichoptic) {
       const pct = Math.round(this.ctx.contrast.getDominantContrast() * 100);
-      this.ctx.hud.setStatus(`2048 · fellow eye ${pct}% — A/B adjust, grip exit`);
+      this.ctx.hud.setStatus(`2048 · fellow eye ${pct}% — A/B adjust, grip pause`);
     } else {
-      this.ctx.hud.setStatus('2048 — flick to slide, A = new game, grip exit');
+      this.ctx.hud.setStatus('2048 — flick to slide, A = new game, grip pause');
     }
   }
 
@@ -425,7 +425,7 @@ export class Dichoptic2048Exercise extends BaseExercise {
       `Best Tile: ${state.highestTile}`,
       `Moves: ${state.moveCount}`,
       '',
-      'A = New Game    Grip = Exit',
+      'A = New Game    Grip = Menu',
     ], {
       width: 512,
       lineHeight: 1.4,

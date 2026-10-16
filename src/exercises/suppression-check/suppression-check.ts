@@ -151,7 +151,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     });
 
     this.beginInterTrial();
-    this.ctx.hud.setStatus('Suppression Check — grip exit');
+    this.ctx.hud.setStatus('Suppression Check — grip pause');
   }
 
   protected onUpdate(): void {

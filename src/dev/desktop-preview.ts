@@ -9,7 +9,7 @@
  *   Arrow keys      thumbstick flicks
  *   Space / Enter   trigger (select)
  *   A / B           A/X and B/Y buttons
- *   Escape          grip (exit)
+ *   Escape / M      grip (pause menu)
  *
  * Controller-tracked features (Brock string docking, crosshair aiming) fall
  * back to their no-controller behaviour.
@@ -39,7 +39,8 @@ const KEY_ACTIONS: Record<string, InputAction> = {
   Enter: 'select',
   a: 'button-a',
   b: 'button-b',
-  Escape: 'exit',
+  m: 'menu',
+  Escape: 'menu',
 };
 
 export function isPreviewMode(): boolean {

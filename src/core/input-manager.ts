@@ -11,12 +11,17 @@ export type InputAction =
   | 'chapter-next'    // Thumbstick down
   | 'chapter-prev'    // Thumbstick up
   | 'select'          // Primary trigger press
-  | 'exit'            // Grip press (either hand)
-  | 'menu'            // Menu button
+  | 'menu'            // Grip (either hand) — opens the pause menu
   | 'button-a'        // A (right) / X (left) button
   | 'button-b';       // B (right) / Y (left) button
 
 export type InputActionCallback = (action: InputAction) => void;
+
+/** The input surface exercises get: action events and haptics. */
+export interface ExerciseInput {
+  onAction(callback: InputActionCallback): () => void;
+  haptic(preset: HapticPreset): void;
+}
 
 /** Haptic pulse presets. */
 export type HapticPreset = 'light' | 'medium' | 'confirm' | 'error' | 'tick';
@@ -50,7 +55,7 @@ interface ControllerState {
 const THUMBSTICK_THRESHOLD = 0.5;
 const THUMBSTICK_DEADZONE = 0.2;
 
-export class InputManager {
+export class InputManager implements ExerciseInput {
   private session: XRSession | null = null;
   private callbacks: InputActionCallback[] = [];
   private controllerStates = new Map<XRInputSource, ControllerState>();
@@ -174,7 +179,7 @@ export class InputManager {
   };
 
   private handleSqueeze = (_event: XRInputSourceEvent): void => {
-    this.dispatch('exit');
+    this.dispatch('menu');
   };
 
   private handleInputSourcesChange = (_event: XRInputSourcesChangeEvent): void => {

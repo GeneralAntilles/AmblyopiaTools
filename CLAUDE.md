@@ -9,7 +9,7 @@ npm run test       # vitest run (headless session tests)
 npx tsc --noEmit   # type check only
 ```
 
-**Desktop preview:** open `https://localhost:5173/?preview` and "Enter Preview" runs the selected exercise in the browser, both eyes side by side (left eye on the left), keyboard standing in for controllers (arrows = stick, Space = trigger, A/B, Esc = grip). Use it to check per-eye content without a headset.
+**Desktop preview:** open `https://localhost:5173/?preview` and "Enter Preview" runs the selected exercise in the browser, both eyes side by side (left eye on the left), keyboard standing in for controllers (arrows = stick, Space = trigger, A/B, Esc = grip/pause menu). Use it to check per-eye content without a headset.
 
 HTTPS is required — WebXR won't activate on plain HTTP. The `@vitejs/plugin-basic-ssl@1` (v1 for Vite 5) handles this with a self-signed cert. Quest Browser will show a certificate warning; accept it.
 
@@ -81,8 +81,10 @@ When `renderer.xr.enabled = true`, calling `renderer.render()` ignores any manua
 - Use deadzone (0.2) and threshold (0.5) for flick detection
 - `selectstart` = trigger, `squeezestart` = grip
 - `gp.buttons[4]` = A/X button, `gp.buttons[5]` = B/Y button (edge-triggered in InputManager)
-- Input actions: `page-forward`, `page-back`, `chapter-next`, `chapter-prev`, `select`, `exit`, `button-a`, `button-b`
-- `exit` (grip) is handled by `SessionHost`, which asks `main.ts` to end the session — exercises never see it
+- Input actions: `page-forward`, `page-back`, `chapter-next`, `chapter-prev`, `select`, `menu`, `button-a`, `button-b`
+- Grip sends `menu`, which opens `SessionHost`'s pause menu (Resume / End Session) — exercises never see it. Quest Browser reserves the left Menu button (it leaves WebXR), so grip stands in for it
+- While paused, exercises get no input or time, and paused time is excluded from `durationMs`. `main.ts` also pauses when the XR session loses visibility (system menu, headset off)
+- On a results screen, trigger ends the session (after a 1 s grace period so a leftover answer press doesn't skip the results)
 
 ### Canvas Text Measurement
 `paginateByFit()` and `renderToTexture()` must use identical font/padding settings or pages won't match the rendered output. Both use the same `wordWrap()` function internally.
@@ -97,7 +99,7 @@ Use `'rgba(0,0,0,0)'` as background + `transparent: true` on the material for fl
    - `onUpdate(dt)` for animation; `this.after(ms, fn)` for delays; `this.now()` for reaction times. Don't use `Date.now()` or `setTimeout` — the exercise clock keeps tests deterministic.
    - `getStats()` returns the metrics to record. Include `fellowEyeContrast` (0–100) only if the fellow eye saw reduced-contrast content — that is what makes a session count toward contrast progression.
    - Finish with `this.showResults(lines, position)`.
-   - Don't handle `exit` (the host does) and don't write teardown for things added via `add()`/`own()` — they're disposed automatically.
+   - Don't handle `menu` or leaving (the host does) and don't write teardown for things added via `add()`/`own()` — they're disposed automatically.
 2. Create `src/exercises/<name>/definition.ts` exporting an `ExerciseDefinition` (card text, `create()`, `summarize()`, `historyDetail()`, optional `settingsSection` and `progressionBlocker()`).
 3. Add it to `EXERCISES` in `src/exercises/registry.ts`.
 4. Add a session test in `tests/sessions.test.ts` that plays it to completion.

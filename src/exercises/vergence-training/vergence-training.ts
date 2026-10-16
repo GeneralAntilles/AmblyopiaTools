@@ -97,7 +97,7 @@ export class VergenceTrainingExercise extends BaseExercise {
       else if (action === 'button-a') this.recordResponse(false);
     });
 
-    this.ctx.hud.setStatus('Vergence — trigger=fused, A=double, grip exit');
+    this.ctx.hud.setStatus('Vergence — trigger=fused, A=double, grip pause');
   }
 
   protected onUpdate(dt: number): void {

@@ -156,7 +156,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
       }
     });
 
-    this.ctx.hud.setStatus('Depth — ←↑→ select, trigger confirm, grip exit');
+    this.ctx.hud.setStatus('Depth — ←↑→ select, trigger confirm, grip pause');
   }
 
   protected onUpdate(dt: number): void {

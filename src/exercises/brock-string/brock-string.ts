@@ -120,7 +120,7 @@ export class BrockStringExercise extends BaseExercise {
       else if (action === 'button-a') this.recordResponse(false);
     });
 
-    this.ctx.hud.setStatus('Brock String — trigger=fused, A=double, grip exit');
+    this.ctx.hud.setStatus('Brock String — trigger=fused, A=double, grip pause');
   }
 
   protected onUpdate(dt: number): void {

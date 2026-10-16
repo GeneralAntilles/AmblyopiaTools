@@ -194,11 +194,11 @@ export class MonocularReadingExercise extends BaseExercise {
     let status: string;
     if (this.isDichoptic) {
       const pct = Math.round(this.ctx.contrast.getDominantContrast() * 100);
-      status = `Dichoptic ${pct}% — A/B adjust, grip exit`;
+      status = `Dichoptic ${pct}% — A/B adjust, grip pause`;
     } else if (this.chapters.length > 1) {
-      status = 'Reading — ↔ page, ↕ chapter, grip exit';
+      status = 'Reading — ↔ page, ↕ chapter, grip pause';
     } else {
-      status = 'Reading — grip exit';
+      status = 'Reading — grip pause';
     }
     this.ctx.hud.setStatus(status);
   }

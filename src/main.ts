@@ -69,10 +69,16 @@ async function handleEnterPreview(exerciseId: string): Promise<void> {
 
   await host.start(exerciseId, launcher.getLaunchOptions(), { renderer, input, hud });
   renderer.start(input, (dt) => host.tick(dt));
+  document.addEventListener('visibilitychange', pauseWhenHidden);
+}
+
+function pauseWhenHidden(): void {
+  if (document.hidden) host.pause();
 }
 
 async function endPreview(): Promise<void> {
   if (!preview) return;
+  document.removeEventListener('visibilitychange', pauseWhenHidden);
   const { renderer, input, hud } = preview;
   preview = null;
   (document.getElementById('xr-canvas') as HTMLCanvasElement).style.display = 'none';
@@ -109,6 +115,11 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
     const input = new InputManager();
     input.setSession(session);
 
+    // Like any Quest game: pause when the system menu opens or the headset comes off
+    session.addEventListener('visibilitychange', () => {
+      if (session.visibilityState !== 'visible') host.pause();
+    });
+
     const hud = new VRHud();
     renderer.addToBothEyes(hud.getGroup());
 
@@ -136,7 +147,7 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
   }
 }
 
-/** Called when the XR session ends (grip exit or leaving VR from the system menu). */
+/** Called when the XR session ends (End Session in the pause menu, or the Quest Menu button). */
 async function handleSessionEnded(): Promise<void> {
   const vrBtn = document.getElementById('enter-vr-btn') as HTMLButtonElement;
   const canvas = document.getElementById('xr-canvas') as HTMLCanvasElement;

@@ -134,7 +134,7 @@ export class ContrastBalanceExercise extends BaseExercise {
       }
     });
 
-    this.ctx.hud.setStatus('Eye Balance — stick along the stripes, grip exit');
+    this.ctx.hud.setStatus('Eye Balance — stick along the stripes, grip pause');
     this.after(FIXATION_MS, () => this.startTrial());
   }
 

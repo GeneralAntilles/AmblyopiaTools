@@ -116,14 +116,17 @@ describe('a full session of each exercise', () => {
 });
 
 describe('leaving a session', () => {
-  it('grip asks the host to exit, from any exercise', async () => {
+  it('grip → End Session leaves, from any exercise', async () => {
     for (const ex of EXERCISES) {
       const h = await createHarness();
       let exitRequests = 0;
       h.host.onExitRequested = () => exitRequests++;
       await h.start(ex.id);
       h.wait(500);
-      h.press('exit');
+      h.press('menu');
+      expect(exitRequests, ex.id).toBe(0);
+      h.press('chapter-next'); // → End Session
+      h.press('select');
       expect(exitRequests, ex.id).toBe(1);
       await h.end();
     }
@@ -153,7 +156,8 @@ describe('leaving a session', () => {
     await h.end();
 
     h.press('page-back');
-    h.press('exit');
+    h.press('menu');
+    h.press('select');
     h.wait(500);
     expect(exitRequests).toBe(0);
   });

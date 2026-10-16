@@ -6,8 +6,8 @@
  *
  *   - Scene ownership: objects added via add() are removed and disposed
  *     (geometry, materials, textures) automatically on teardown.
- *   - Input: onInput() subscriptions are released on teardown. Exiting is
- *     handled by the session host, not by exercises.
+ *   - Input: onInput() subscriptions are released on teardown. Grip (pause
+ *     menu) and leaving are handled by the session host, not by exercises.
  *   - Time: an exercise clock (ms) advanced by update(dt). Use now() for
  *     reaction times and after() for delays, so exercises stay deterministic
  *     under test.
@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 import type { EyeRenderer } from '../core/per-eye-renderer';
-import type { InputManager, InputAction } from '../core/input-manager';
+import type { ExerciseInput, InputAction } from '../core/input-manager';
 import type { ContrastEngine } from '../core/contrast-engine';
 import type { UserSettings } from '../core/settings-store';
 import { TextPanel, resultsText } from '../ui/text-panel';
@@ -46,7 +46,7 @@ export interface StatusDisplay {
 
 export interface ExerciseContext {
   renderer: EyeRenderer;
-  input: InputManager;
+  input: ExerciseInput;
   contrast: ContrastEngine;
   settings: Readonly<UserSettings>;
   hud: StatusDisplay;
@@ -182,7 +182,7 @@ export abstract class BaseExercise {
     this.finished = true;
     this.timers = [];
     if (!this.resultsPanel) this.resultsPanel = this.panel(PANELS.RESULTS_WIDTH);
-    this.resultsPanel.setText(resultsText([...lines, '', 'Grip to exit']));
+    this.resultsPanel.setText(resultsText([...lines, '', 'Trigger to finish']));
     this.resultsPanel.position.set(position.x, position.y, position.z);
     this.resultsPanel.visible = true;
     return this.resultsPanel;
