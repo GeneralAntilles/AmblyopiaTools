@@ -17,6 +17,17 @@ export const depthScaffoldingDefinition: ExerciseDefinition = {
     ...(typeof stats.maxCueLevelName === 'string' ? [{ label: 'Max Level', value: stats.maxCueLevelName }] : []),
   ],
 
+  trends: [{
+    label: 'Finest stereo-only depth',
+    unit: ' mm',
+    better: 'lower',
+    value: (stats) => {
+      const levels = stats.levelResults as Array<{ finestDepthMm?: number | null }> | undefined;
+      const pure = levels?.[2]?.finestDepthMm;
+      return typeof pure === 'number' ? pure : undefined;
+    },
+  }],
+
   historyDetail: (stats) => {
     const accuracy = num(stats, 'accuracy');
     return accuracy === undefined ? [] : [`${accuracy}% correct`];

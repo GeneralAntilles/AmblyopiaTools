@@ -10,6 +10,7 @@ import { loadEpub, type LoadedBook, type BookChapter } from '../utils/epub-loade
 import { EXERCISES, getExercise } from '../exercises/registry';
 import type { LaunchOptions } from '../exercises/definition';
 import { escapeHtml, formatDate, formatDuration } from '../utils/format';
+import { renderProgressTrends } from './progress-trends';
 
 const TYPE_LABELS: Record<string, string> = {
   monocular: 'Monocular',
@@ -73,6 +74,9 @@ export class Launcher {
     // Refresh contrast progress bar
     const settings = await this.store.getSettings();
     this.updateContrastProgress(settings.contrastDominant);
+
+    const trends = document.getElementById('progress-trends');
+    if (trends) await renderProgressTrends(trends, this.store, settings);
 
     // Add recommended badge to exercise cards
     const rec = this.getRecommendedExercise(settings);

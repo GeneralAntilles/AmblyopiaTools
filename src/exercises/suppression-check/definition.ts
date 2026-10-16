@@ -31,6 +31,8 @@ export const suppressionCheckDefinition: ExerciseDefinition = {
     return rows;
   },
 
+  trends: [{ label: 'Fusion (Worth 4-dot)', unit: '%', better: 'higher', value: (stats) => num(stats, 'fusionRate') }],
+
   historyDetail: (stats) => {
     const fusion = num(stats, 'fusionRate');
     return fusion === undefined ? [] : [`${fusion}% fusion`];

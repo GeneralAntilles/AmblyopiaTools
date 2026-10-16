@@ -29,6 +29,13 @@ export const contrastBalanceDefinition: ExerciseDefinition = {
     return stats.completed && balance !== undefined ? [`balance ${balance}%`] : [];
   },
 
+  trends: [{
+    label: 'Eye balance point',
+    unit: '%',
+    better: 'higher',
+    value: (stats) => (stats.completed ? num(stats, 'balancePct') : undefined),
+  }],
+
   applyResult: (stats) => {
     const balance = num(stats, 'balanceContrast');
     if (!stats.completed || balance === undefined) return null;

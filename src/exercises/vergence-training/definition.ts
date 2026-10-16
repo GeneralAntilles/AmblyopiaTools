@@ -18,6 +18,11 @@ export const vergenceTrainingDefinition: ExerciseDefinition = {
     ...statRow(stats, 'avgReactionTimeMs', 'Avg Reaction Time', 'ms'),
   ],
 
+  trends: [
+    { label: 'Convergence range', unit: ' mm', better: 'higher', value: (stats) => num(stats, 'maxConvergenceDisparityMm') },
+    { label: 'Divergence range', unit: ' mm', better: 'higher', value: (stats) => num(stats, 'maxDivergenceDisparityMm') },
+  ],
+
   historyDetail: (stats) => {
     const parts: string[] = [];
     const fusion = num(stats, 'fusionRate');

@@ -17,6 +17,8 @@ export const brockStringDefinition: ExerciseDefinition = {
     ...statRow(stats, 'avgReactionTimeMs', 'Avg Reaction Time', 'ms'),
   ],
 
+  trends: [{ label: 'Near point of convergence', unit: ' cm', better: 'lower', value: (stats) => num(stats, 'npcCm') }],
+
   historyDetail: (stats) => {
     const parts: string[] = [];
     const fusion = num(stats, 'fusionRate');

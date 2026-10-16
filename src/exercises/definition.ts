@@ -27,6 +27,15 @@ export interface LaunchOptions {
   reading?: ReadingSource;
 }
 
+/** A per-session number worth tracking over time. */
+export interface TrendMetric {
+  label: string;
+  unit: string;
+  /** Which direction is improvement. */
+  better: 'higher' | 'lower';
+  value(stats: StoredStats): number | undefined;
+}
+
 export interface ExerciseDefinition {
   id: string;
   name: string;
@@ -53,6 +62,8 @@ export interface ExerciseDefinition {
    * setting the starting contrast). Applied before progression.
    */
   applyResult?(stats: SessionStats, settings: Readonly<UserSettings>): Partial<UserSettings> | null;
+  /** Metrics shown as trends on the launcher's progress section. */
+  trends?: TrendMetric[];
 }
 
 /** Read a numeric stat, or undefined if absent/non-numeric. */

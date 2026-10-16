@@ -128,6 +128,49 @@ describe('launcher', () => {
   });
 });
 
+describe('progress trends', () => {
+  const trendRows = () =>
+    Object.fromEntries(
+      [...document.querySelectorAll('.trend-row')].map((r) => [
+        r.querySelector('.trend-label')!.firstChild!.textContent!.trim(),
+        `${r.querySelector('.trend-value')!.firstChild!.textContent!.trim()} ${r.querySelector('.trend-delta')!.textContent}`,
+      ]),
+    );
+
+  it('shows a metric once it has two sessions, with direction-aware change', async () => {
+    const { store, launch } = await openLauncher();
+    const t = Date.now();
+    const brock = (npcCm: number, i: number) => store.saveSessionRecord({
+      exercise: 'brock-string', startTime: t - 100_000 * (10 - i), endTime: t, durationMs: 60_000,
+      stats: { npcCm, fusionRate: 60 },
+    });
+    await brock(14, 0);
+    await launch();
+    expect(trendRows()).toEqual({});
+    expect(text('#progress-trends')).toContain('two sessions');
+
+    await brock(11, 1);
+    await brock(9, 2);
+    await launch();
+    expect(trendRows()).toEqual({ 'Near point of convergence': '9 cm −5 cm' });
+    // Smaller NPC is better
+    expect(document.querySelector('.trend-delta')!.classList.contains('improved')).toBe(true);
+  });
+
+  it('tracks fellow-eye contrast across calibration and progression', async () => {
+    const h = await createHarness({ nonTrainingDisplay: 'dichoptic', contrastDominant: 0.2 });
+    // Two dichoptic reading sessions that each earn +2%
+    for (let i = 0; i < 2; i++) {
+      await h.start('monocular-reading', { reading: { text: 'Some text.' } });
+      h.wait(6 * 60_000, 500);
+      await h.end();
+    }
+    const launcher = new Launcher(h.store);
+    await launcher.init();
+    expect(trendRows()).toMatchObject({ 'Fellow-eye contrast': '24% +4%' });
+  });
+});
+
 describe('session summary', () => {
   it('explains why a dichoptic session did not raise contrast', async () => {
     const h = await createHarness({ nonTrainingDisplay: 'dichoptic', contrastDominant: 0.3 });

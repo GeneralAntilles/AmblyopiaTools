@@ -616,6 +616,64 @@
       overflow-y: auto;
     }
 
+    /* ── Progress Trends ───────────────────────────────────── */
+    .progress-trends {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .trend-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 14px;
+      background: var(--bg-card);
+      border-radius: var(--radius-sm);
+    }
+
+    .trend-label {
+      font-size: 14px;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .trend-count {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    .sparkline polyline {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+
+    .sparkline circle { fill: var(--accent); }
+
+    .trend-value {
+      font-size: 15px;
+      font-weight: 600;
+      text-align: right;
+      min-width: 72px;
+      display: flex;
+      flex-direction: column;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .trend-delta {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-tertiary);
+    }
+
+    .trend-delta.improved { color: var(--success); }
+    .trend-delta.worse { color: var(--warning); }
+
     .history-empty {
       color: var(--text-tertiary);
       font-size: 13px;
@@ -797,6 +855,11 @@ Dichoptic training — where each eye receives different stimuli — has been sh
     <div class="session-summary" id="session-summary">
       <h3>Session Summary</h3>
       <div id="summary-stats"></div>
+    </div>
+
+    <div class="section" id="progress-section">
+      <h2>Progress</h2>
+      <div id="progress-trends" class="progress-trends"></div>
     </div>
 
     <div class="section" id="history-section">

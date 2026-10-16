@@ -14,7 +14,7 @@ import { ContrastEngine } from './contrast-engine';
 import { evaluateProgression, type ProgressionDecision } from './contrast-progression';
 import type { EyeRenderer } from './per-eye-renderer';
 import type { InputManager } from './input-manager';
-import type { SettingsStore, SessionRecord } from './settings-store';
+import type { SettingsStore, SessionRecord, UserSettings } from './settings-store';
 import type { BaseExercise, SessionStats, StatusDisplay } from '../exercises/base-exercise';
 import type { ExerciseDefinition, LaunchOptions } from '../exercises/definition';
 import { getExercise } from '../exercises/registry';
@@ -145,7 +145,7 @@ export class SessionHost {
       if (applied.contrastDominant !== undefined && applied.contrastDominant !== settings.contrastDominant) {
         contrastChange = { from: settings.contrastDominant, to: applied.contrastDominant, source: 'calibration' };
         applied.contrastProgressionHistory = [
-          ...settings.contrastProgressionHistory.slice(-99),
+          ...withStartingPoint(settings, startTime),
           { timestamp: endTime, contrast: applied.contrastDominant, exercise: definition.id, auto: false },
         ];
       }
@@ -163,7 +163,7 @@ export class SessionHost {
         await this.store.saveSettings({
           contrastDominant: progression.newContrast,
           contrastProgressionHistory: [
-            ...settings.contrastProgressionHistory.slice(-99),
+            ...withStartingPoint(settings, startTime),
             {
               timestamp: endTime,
               contrast: progression.newContrast,
@@ -183,4 +183,13 @@ export class SessionHost {
 
     return { definition, stats, record, progression, contrastChange };
   }
+}
+
+type ContrastHistory = UserSettings['contrastProgressionHistory'];
+
+/** Recent contrast history, seeded with the level contrast started at if this is its first change. */
+function withStartingPoint(settings: UserSettings, timestamp: number): ContrastHistory {
+  const history = settings.contrastProgressionHistory;
+  if (history.length > 0) return history.slice(-99);
+  return [{ timestamp, contrast: settings.contrastDominant, exercise: 'start', auto: false }];
 }
