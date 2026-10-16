@@ -37,7 +37,7 @@ npx serve dist
 | Brock String | Binocular | Progressive near-point-of-convergence staircase |
 | Vergence Training | Binocular | Convergence/divergence staircase with disparity rings |
 
-Fellow-eye contrast rises +2% after each successful session (auto-progression, on by default). Ideas and planned exercises live in [IDEAS.md](IDEAS.md).
+Fellow-eye contrast rises +2% after each successful **dichoptic** session (auto-progression, on by default). Ideas and planned exercises live in [IDEAS.md](IDEAS.md).
 
 ## Development
 

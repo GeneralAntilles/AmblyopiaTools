@@ -24,7 +24,7 @@ src/core/
   per-eye-renderer.ts      → EyeRenderer interface + Three.js layers-based WebXR implementation
   input-manager.ts         → Quest controller input → action events (dispatch() for non-XR input)
   contrast-engine.ts       → Fellow-eye contrast for the session (change listeners persist it)
-  contrast-progression.ts  → Cross-session +2% rule
+  contrast-progression.ts  → Cross-session +2% rule, dichoptic sessions only
   settings-store.ts        → IndexedDB persistence via idb
 src/exercises/
   registry.ts              → EXERCISES[] — the only list of exercises
@@ -95,7 +95,7 @@ Use `'rgba(0,0,0,0)'` as background + `transparent: true` on the material for fl
 1. Create `src/exercises/<name>/<name>.ts` extending `BaseExercise`:
    - `setup()` builds the scene with `this.add(obj, 'both' | 'training' | 'fellow')`, text with `this.panel(width)`, and subscribes with `this.onInput(cb)`. Set the HUD line with `this.ctx.hud.setStatus()`.
    - `onUpdate(dt)` for animation; `this.after(ms, fn)` for delays; `this.now()` for reaction times. Don't use `Date.now()` or `setTimeout` — the exercise clock keeps tests deterministic.
-   - `getStats()` returns the metrics to record.
+   - `getStats()` returns the metrics to record. Include `fellowEyeContrast` (0–100) only if the fellow eye saw reduced-contrast content — that is what makes a session count toward contrast progression.
    - Finish with `this.showResults(lines, position)`.
    - Don't handle `exit` (the host does) and don't write teardown for things added via `add()`/`own()` — they're disposed automatically.
 2. Create `src/exercises/<name>/definition.ts` exporting an `ExerciseDefinition` (card text, `create()`, `summarize()`, `historyDetail()`, optional `settingsSection` and `progressionBlocker()`).

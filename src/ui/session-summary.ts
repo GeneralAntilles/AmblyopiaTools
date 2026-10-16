@@ -6,6 +6,7 @@
  */
 
 import type { SessionOutcome } from '../core/session-host';
+import { wasDichoptic } from '../core/contrast-progression';
 import type { SummaryRow } from '../exercises/definition';
 import { escapeHtml, formatDuration } from '../utils/format';
 
@@ -26,6 +27,9 @@ export function showSessionSummary(container: HTMLElement, outcome: SessionOutco
     const prev = Math.round(progression.previousContrast * 100);
     const next = Math.round(progression.newContrast * 100);
     rows.push({ label: 'Contrast Progression', value: `${prev}% → ${next}%`, highlight: true });
+  } else if (progression && wasDichoptic(stats)) {
+    // Say why a dichoptic session didn't move contrast
+    rows.push({ label: 'Contrast Progression', value: `Unchanged — ${progression.reason.toLowerCase()}` });
   }
 
   statsContainer.innerHTML = rows

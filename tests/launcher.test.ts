@@ -9,6 +9,8 @@ import { IDBFactory } from 'fake-indexeddb';
 import { SettingsStore, type UserSettings } from '../src/core/settings-store';
 import { Launcher } from '../src/ui/launcher';
 import { EXERCISES } from '../src/exercises/registry';
+import { createHarness } from './support/harness';
+import { showSessionSummary } from '../src/ui/session-summary';
 
 const body = html.slice(html.indexOf('<body>') + 6, html.indexOf('</body>')).replace(/<script[\s\S]*?<\/script>/g, '');
 
@@ -77,5 +79,27 @@ describe('launcher', () => {
     (document.getElementById('reading-text') as HTMLTextAreaElement).value = 'Call me Ishmael.';
 
     expect(launcher.getLaunchOptions().reading?.text).toBe('Call me Ishmael.');
+  });
+});
+
+describe('session summary', () => {
+  it('explains why a dichoptic session did not raise contrast', async () => {
+    const h = await createHarness({ nonTrainingDisplay: 'dichoptic', contrastDominant: 0.3 });
+    await h.start('monocular-reading', { reading: { text: 'Short text.' } });
+    h.wait(60_000, 250);
+    const outcome = (await h.end())!;
+
+    showSessionSummary(document.getElementById('session-summary')!, outcome);
+    const rows = Object.fromEntries(
+      [...document.querySelectorAll('#summary-stats .stat-row')].map((r) => [
+        r.querySelector('.label')!.textContent,
+        r.querySelector('.value')!.textContent,
+      ]),
+    );
+    expect(rows).toMatchObject({
+      Exercise: 'Dichoptic Reading',
+      'Fellow-Eye Contrast': '30%',
+      'Contrast Progression': 'Unchanged — session too short',
+    });
   });
 });
