@@ -109,14 +109,14 @@ export class InputManager {
       // Detect thumbstick flick right (page forward)
       const isRight = state.thumbstickX > THUMBSTICK_THRESHOLD;
       if (isRight && !state.thumbstickWasRight) {
-        this.emit('page-forward');
+        this.dispatch('page-forward');
       }
       state.thumbstickWasRight = isRight;
 
       // Detect thumbstick flick left (page back)
       const isLeft = state.thumbstickX < -THUMBSTICK_THRESHOLD;
       if (isLeft && !state.thumbstickWasLeft) {
-        this.emit('page-back');
+        this.dispatch('page-back');
       }
       state.thumbstickWasLeft = isLeft;
 
@@ -124,28 +124,28 @@ export class InputManager {
       // WebXR Y axis: negative = pushed forward/up, positive = pulled back/down
       const isDown = state.thumbstickY > THUMBSTICK_THRESHOLD;
       if (isDown && !state.thumbstickWasDown) {
-        this.emit('chapter-next');
+        this.dispatch('chapter-next');
       }
       state.thumbstickWasDown = isDown;
 
       // Detect thumbstick flick up (prev chapter)
       const isUp = state.thumbstickY < -THUMBSTICK_THRESHOLD;
       if (isUp && !state.thumbstickWasUp) {
-        this.emit('chapter-prev');
+        this.dispatch('chapter-prev');
       }
       state.thumbstickWasUp = isUp;
 
       // A/X button (buttons[4])
       const btnA = gp.buttons[4]?.pressed ?? false;
       if (btnA && !state.buttonAPressed) {
-        this.emit('button-a');
+        this.dispatch('button-a');
       }
       state.buttonAPressed = btnA;
 
       // B/Y button (buttons[5])
       const btnB = gp.buttons[5]?.pressed ?? false;
       if (btnB && !state.buttonBPressed) {
-        this.emit('button-b');
+        this.dispatch('button-b');
       }
       state.buttonBPressed = btnB;
     }
@@ -170,11 +170,11 @@ export class InputManager {
   }
 
   private handleSelect = (_event: XRInputSourceEvent): void => {
-    this.emit('select');
+    this.dispatch('select');
   };
 
   private handleSqueeze = (_event: XRInputSourceEvent): void => {
-    this.emit('exit');
+    this.dispatch('exit');
   };
 
   private handleInputSourcesChange = (_event: XRInputSourcesChangeEvent): void => {
@@ -187,7 +187,11 @@ export class InputManager {
     }
   };
 
-  private emit(action: InputAction): void {
+  /**
+   * Deliver an action to all subscribers. Called internally from controller
+   * events; also the entry point for non-XR input (tests, desktop preview).
+   */
+  dispatch(action: InputAction): void {
     for (const cb of this.callbacks) {
       cb(action);
     }

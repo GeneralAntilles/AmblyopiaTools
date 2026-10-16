@@ -13,13 +13,10 @@
  */
 
 import * as THREE from 'three';
-import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
-import type { PerEyeRenderer } from '../../core/per-eye-renderer';
-import type { InputManager } from '../../core/input-manager';
-import { TextRenderer } from '../../utils/text-renderer';
-import { createEnvironmentSphere } from '../../ui/vr-environment';
-import { COLORS, FONTS, PANELS, CONTENT_Y } from '../../ui/vr-constants';
-import { Game2048, type Direction } from './game-logic';
+import { BaseExercise, type ExerciseStats } from '../base-exercise';
+import { TextPanel, instructionText, resultsText } from '../../ui/text-panel';
+import { COLORS, PANELS, CONTENT_Y } from '../../ui/vr-constants';
+import { Game2048, type Direction, type GameState } from './game-logic';
 import { TileTextureCache } from './tile-renderer';
 
 // --- Board geometry ---
@@ -47,30 +44,14 @@ function easeOutBack(t: number): number {
 }
 
 export class Dichoptic2048Exercise extends BaseExercise {
-  readonly name = 'Dichoptic 2048';
-  readonly description = 'Play 2048 with tiles visible only to your training eye.';
-  readonly type = 'dichoptic' as const;
+  private tileTextures = this.own(new TileTextureCache());
+  private game = new Game2048();
 
-  private renderer: PerEyeRenderer | null = null;
-  private input: InputManager | null = null;
-  private unsubInput: (() => void) | null = null;
-  private textRenderer: TextRenderer;
-  private tileTextures: TileTextureCache;
-  private game: Game2048;
+  // Both eyes
+  private scorePanel!: TextPanel;
+  private gameOverPanel!: TextPanel;
 
-  // Scene objects — Layer 0 (both eyes)
-  private envSphereMesh: THREE.Mesh | null = null;
-  private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private boardMesh: THREE.Mesh | null = null;
-  private boardMaterial: THREE.MeshBasicMaterial | null = null;
-  private scoreMesh: THREE.Mesh | null = null;
-  private scoreMaterial: THREE.MeshBasicMaterial | null = null;
-  private instructionMesh: THREE.Mesh | null = null;
-  private instructionMaterial: THREE.MeshBasicMaterial | null = null;
-  private gameOverMesh: THREE.Mesh | null = null;
-  private gameOverMaterial: THREE.MeshBasicMaterial | null = null;
-
-  // Scene objects — Layer 1 (training eye only)
+  // Training eye only
   private tileMeshes: THREE.Mesh[] = [];
   private tileMaterials: THREE.MeshBasicMaterial[] = [];
 
@@ -79,43 +60,33 @@ export class Dichoptic2048Exercise extends BaseExercise {
   private animProgress = 0;
   private spawnTileId: number = -1;
 
-  private exitCallback: (() => void) | null = null;
-
-  constructor() {
-    super();
-    this.textRenderer = new TextRenderer();
-    this.tileTextures = new TileTextureCache();
-    this.game = new Game2048();
-  }
-
-  setExitCallback(cb: () => void): void {
-    this.exitCallback = cb;
-  }
-
-  async setup(config: ExerciseConfig): Promise<void> {
-    this.renderer = config.renderer;
-    this.input = config.input;
+  protected setup(): void {
     this.game.reset();
 
     this.tileTextures.prerender();
-    this.createEnvironment();
+    this.addEnvironment();
     this.createBoard();
     this.createTileMeshPool();
-    this.createScoreDisplay();
-    this.createInstructions();
-    this.createGameOverOverlay();
+
+    this.scorePanel = this.panel(0.6);
+    this.scorePanel.position.set(0, BOARD_Y + BOARD_SIZE / 2 + 0.08, BOARD_Z);
+
+    this.panel(PANELS.INSTRUCTION_WIDTH)
+      .setText(instructionText(['Flick stick to slide tiles — Grip to exit']))
+      .position.set(0, BOARD_Y - BOARD_SIZE / 2 - 0.08, BOARD_Z);
+
+    this.gameOverPanel = this.panel(0.7);
+    this.gameOverPanel.position.set(0, BOARD_Y, BOARD_Z + 0.05);
+    this.gameOverPanel.visible = false;
 
     this.syncTileMeshes();
     this.renderScore();
 
-    this.unsubInput = this.input.onAction((action) => {
+    this.onInput((action) => {
       if (this.animPhase !== 'idle') return;
 
-      const state = this.game.getState();
-
-      if (state.gameOver) {
+      if (this.game.getState().gameOver) {
         if (action === 'button-a') this.handleRestart();
-        if (action === 'exit') this.exitCallback?.();
         return;
       }
 
@@ -125,16 +96,15 @@ export class Dichoptic2048Exercise extends BaseExercise {
         case 'page-forward': direction = 'right'; break;
         case 'chapter-prev': direction = 'up';    break;
         case 'chapter-next': direction = 'down';  break;
-        case 'exit':         this.exitCallback?.(); return;
       }
 
       if (direction) this.handleMove(direction);
     });
 
-    this.markStarted();
+    this.ctx.hud.setStatus('2048 — flick to slide, A = new game, grip exit');
   }
 
-  update(dt: number): void {
+  protected onUpdate(dt: number): void {
     if (this.animPhase === 'slide') {
       this.animProgress = Math.min(1, this.animProgress + dt / SLIDE_DURATION);
       const t = easeOutCubic(this.animProgress);
@@ -161,62 +131,18 @@ export class Dichoptic2048Exercise extends BaseExercise {
         // Check game state after animation
         const state = this.game.getState();
         if (state.won) {
-          this.input?.haptic('confirm');
+          this.ctx.input.haptic('confirm');
           this.showGameOver(state);
         } else if (state.gameOver) {
           this.showGameOver(state);
         }
       }
-      return;
     }
   }
 
-  teardown(): void {
-    this.markStopped();
-    this.unsubInput?.();
-
-    if (this.renderer) {
-      if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
-      if (this.boardMesh) this.renderer.removeFromScene(this.boardMesh);
-      if (this.scoreMesh) this.renderer.removeFromScene(this.scoreMesh);
-      if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
-      if (this.gameOverMesh) this.renderer.removeFromScene(this.gameOverMesh);
-      for (const mesh of this.tileMeshes) this.renderer.removeFromScene(mesh);
-    }
-
-    this.envSphereMesh?.geometry.dispose();
-    this.envMaterial?.map?.dispose();
-    this.envMaterial?.dispose();
-    this.boardMesh?.geometry.dispose();
-    this.boardMaterial?.map?.dispose();
-    this.boardMaterial?.dispose();
-    this.scoreMesh?.geometry.dispose();
-    this.scoreMaterial?.map?.dispose();
-    this.scoreMaterial?.dispose();
-    this.instructionMesh?.geometry.dispose();
-    this.instructionMaterial?.map?.dispose();
-    this.instructionMaterial?.dispose();
-    this.gameOverMesh?.geometry.dispose();
-    this.gameOverMaterial?.map?.dispose();
-    this.gameOverMaterial?.dispose();
-
-    for (let i = 0; i < this.tileMeshes.length; i++) {
-      this.tileMeshes[i].geometry.dispose();
-      // Don't dispose tileMaterials[i].map — shared cache textures
-      this.tileMaterials[i].dispose();
-    }
-
-    this.tileTextures.dispose();
-
-    this.renderer = null;
-    this.input = null;
-  }
-
-  getSessionStats(): SessionStats {
+  getStats(): ExerciseStats {
     const state = this.game.getState();
     return {
-      exercise: 'dichoptic-2048',
-      durationMs: this.getElapsedMs(),
       score: state.score,
       highestTile: state.highestTile,
       moveCount: state.moveCount,
@@ -231,11 +157,11 @@ export class Dichoptic2048Exercise extends BaseExercise {
     const result = this.game.move(direction);
 
     if (!result.moved) {
-      this.input?.haptic('error');
+      this.ctx.input.haptic('error');
       return;
     }
 
-    this.input?.haptic('tick');
+    this.ctx.input.haptic('tick');
 
     // Find the newly spawned tile for animation
     const spawned = result.tiles.find((t) => t.isNew);
@@ -250,11 +176,11 @@ export class Dichoptic2048Exercise extends BaseExercise {
 
   private handleRestart(): void {
     this.game.reset();
-    this.gameOverMesh!.visible = false;
+    this.gameOverPanel.visible = false;
     this.animPhase = 'idle';
     this.syncTileMeshes();
     this.renderScore();
-    this.input?.haptic('confirm');
+    this.ctx.input.haptic('confirm');
   }
 
   // --- Coordinate Mapping ---
@@ -348,27 +274,15 @@ export class Dichoptic2048Exercise extends BaseExercise {
 
   // --- Scene Setup ---
 
-  private createEnvironment(): void {
-    if (!this.renderer) return;
-    const { mesh, material } = createEnvironmentSphere(this.renderer);
-    this.envSphereMesh = mesh;
-    this.envMaterial = material;
-  }
-
   private createBoard(): void {
-    if (!this.renderer) return;
-
-    const tex = this.renderBoardTexture();
-    this.boardMaterial = new THREE.MeshBasicMaterial({
-      map: tex,
+    const material = new THREE.MeshBasicMaterial({
+      map: this.renderBoardTexture(),
       transparent: true,
       depthWrite: false,
     });
-
-    const geo = new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE);
-    this.boardMesh = new THREE.Mesh(geo, this.boardMaterial);
-    this.boardMesh.position.set(0, BOARD_Y, BOARD_Z);
-    this.renderer.addToBothEyes(this.boardMesh);
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE), material);
+    board.position.set(0, BOARD_Y, BOARD_Z);
+    this.add(board, 'both');
   }
 
   private renderBoardTexture(): THREE.CanvasTexture {
@@ -435,8 +349,6 @@ export class Dichoptic2048Exercise extends BaseExercise {
   }
 
   private createTileMeshPool(): void {
-    if (!this.renderer) return;
-
     const geo = new THREE.PlaneGeometry(CELL_SIZE * 0.95, CELL_SIZE * 0.95);
 
     for (let i = 0; i < 16; i++) {
@@ -447,79 +359,18 @@ export class Dichoptic2048Exercise extends BaseExercise {
       const mesh = new THREE.Mesh(geo.clone(), mat);
       mesh.visible = false;
       mesh.position.set(0, 0, BOARD_Z + TILE_Z_OFFSET);
-      this.renderer.addToTrainingEye(mesh);
+      this.add(mesh, 'training');
       this.tileMeshes.push(mesh);
       this.tileMaterials.push(mat);
     }
-  }
-
-  private createScoreDisplay(): void {
-    if (!this.renderer) return;
-
-    const geo = new THREE.PlaneGeometry(0.6, 0.10);
-    this.scoreMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.scoreMesh = new THREE.Mesh(geo, this.scoreMaterial);
-    this.scoreMesh.position.set(0, BOARD_Y + BOARD_SIZE / 2 + 0.08, BOARD_Z);
-    this.renderer.addToBothEyes(this.scoreMesh);
-  }
-
-  private createInstructions(): void {
-    if (!this.renderer) return;
-
-    const geo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
-    this.instructionMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.instructionMesh = new THREE.Mesh(geo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, BOARD_Y - BOARD_SIZE / 2 - 0.08, BOARD_Z);
-    this.renderer.addToBothEyes(this.instructionMesh);
-
-    const tex = this.textRenderer.renderToTexture({
-      text: 'Flick stick to slide tiles — Grip to exit',
-      width: 1024,
-      height: 130,
-      fontSize: FONTS.INSTRUCTION,
-      lineHeight: 1.5,
-      color: COLORS.TEXT_INSTRUCTION,
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 30,
-      paddingY: 12,
-    });
-
-    this.instructionMaterial.map = tex;
-    this.instructionMaterial.needsUpdate = true;
-  }
-
-  private createGameOverOverlay(): void {
-    if (!this.renderer) return;
-
-    const geo = new THREE.PlaneGeometry(0.7, 0.5);
-    this.gameOverMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.gameOverMesh = new THREE.Mesh(geo, this.gameOverMaterial);
-    this.gameOverMesh.position.set(0, BOARD_Y, BOARD_Z + 0.05);
-    this.gameOverMesh.visible = false;
-    this.renderer.addToBothEyes(this.gameOverMesh);
+    geo.dispose();
   }
 
   // --- UI Rendering ---
 
   private renderScore(): void {
-    const state = this.game.getState();
-
-    this.scoreMaterial!.map?.dispose();
-    const tex = this.textRenderer.renderToTexture({
-      text: `Score: ${state.score}`,
+    this.scorePanel.setText({
+      text: `Score: ${this.game.getState().score}`,
       width: 512,
       height: 72,
       fontSize: 40,
@@ -530,16 +381,12 @@ export class Dichoptic2048Exercise extends BaseExercise {
       paddingX: 16,
       paddingY: 12,
     });
-
-    this.scoreMaterial!.map = tex;
-    this.scoreMaterial!.needsUpdate = true;
   }
 
-  private showGameOver(state: import('./game-logic').GameState): void {
+  private showGameOver(state: GameState): void {
     const title = state.won ? 'You reached 2048!' : 'Game Over';
-    const color = state.won ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE;
 
-    const lines = [
+    const card = resultsText([
       title,
       '',
       `Score: ${state.score}`,
@@ -547,27 +394,16 @@ export class Dichoptic2048Exercise extends BaseExercise {
       `Moves: ${state.moveCount}`,
       '',
       'A = New Game    Grip = Exit',
-    ];
-
-    this.gameOverMaterial!.map?.dispose();
-    const tex = this.textRenderer.renderToTexture({
-      text: lines.join('\n'),
+    ], {
       width: 512,
-      height: 384,
-      fontSize: FONTS.RESULTS,
       lineHeight: 1.4,
-      color,
-      background: COLORS.PANEL_BG,
+      align: 'center',
+      color: state.won ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE,
       paddingX: 40,
       paddingY: 36,
-      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
-      borderColor: COLORS.PANEL_BORDER,
-      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
-      align: 'center',
     });
 
-    this.gameOverMaterial!.map = tex;
-    this.gameOverMaterial!.needsUpdate = true;
-    this.gameOverMesh!.visible = true;
+    this.gameOverPanel.setText(card);
+    this.gameOverPanel.visible = true;
   }
 }

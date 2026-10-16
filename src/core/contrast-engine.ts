@@ -28,6 +28,7 @@ export class ContrastEngine {
   private settings: ContrastSettings;
   private correctStreak: number = 0;
   private incorrectStreak: number = 0;
+  private changeListeners: Array<(dominant: number) => void> = [];
 
   constructor(settings?: Partial<ContrastSettings>) {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -46,7 +47,19 @@ export class ContrastEngine {
   }
 
   setDominantContrast(value: number): void {
-    this.settings.dominantEyeContrast = clamp(value, 0, 1);
+    const next = clamp(value, 0, 1);
+    if (next === this.settings.dominantEyeContrast) return;
+    this.settings.dominantEyeContrast = next;
+    for (const cb of this.changeListeners) cb(next);
+  }
+
+  /** Subscribe to fellow-eye contrast changes. Returns an unsubscribe function. */
+  onDominantContrastChange(cb: (dominant: number) => void): () => void {
+    this.changeListeners.push(cb);
+    return () => {
+      const idx = this.changeListeners.indexOf(cb);
+      if (idx >= 0) this.changeListeners.splice(idx, 1);
+    };
   }
 
   setAmblyopicContrast(value: number): void {
@@ -70,11 +83,7 @@ export class ContrastEngine {
 
     // After 3 correct in a row, increase dominant eye contrast (harder)
     if (this.correctStreak >= 3) {
-      this.settings.dominantEyeContrast = clamp(
-        this.settings.dominantEyeContrast + this.settings.adaptiveStepSize,
-        0,
-        1
-      );
+      this.setDominantContrast(this.settings.dominantEyeContrast + this.settings.adaptiveStepSize);
       this.correctStreak = 0;
     }
   }
@@ -92,11 +101,7 @@ export class ContrastEngine {
 
     // After 1 incorrect, decrease dominant eye contrast (easier)
     if (this.incorrectStreak >= 1) {
-      this.settings.dominantEyeContrast = clamp(
-        this.settings.dominantEyeContrast - this.settings.adaptiveStepSize,
-        0,
-        1
-      );
+      this.setDominantContrast(this.settings.dominantEyeContrast - this.settings.adaptiveStepSize);
       this.incorrectStreak = 0;
     }
   }

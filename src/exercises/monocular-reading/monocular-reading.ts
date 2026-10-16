@@ -15,17 +15,13 @@
  * Supports multi-chapter books (EPUB). In VR:
  *   - Thumbstick left/right or trigger: page back/forward
  *   - Thumbstick up/down: previous/next chapter
- *   - Grip: exit exercise
+ *   - A/B: lower/raise fellow-eye contrast (dichoptic mode)
  */
 
 import * as THREE from 'three';
-import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
-import type { PerEyeRenderer } from '../../core/per-eye-renderer';
-import type { InputManager } from '../../core/input-manager';
-import type { ContrastEngine } from '../../core/contrast-engine';
+import { BaseExercise, type ExerciseStats } from '../base-exercise';
 import { TextRenderer, paginateByFit } from '../../utils/text-renderer';
 import { TextureCache } from '../../utils/texture-cache';
-import { createEnvironmentSphere } from '../../ui/vr-environment';
 import { COLORS } from '../../ui/vr-constants';
 
 export interface BookChapterData {
@@ -35,25 +31,16 @@ export interface BookChapterData {
 
 export type NonTrainingDisplay = 'blank' | 'fixation' | 'pattern' | 'dichoptic';
 
-export interface MonocularReadingSettings {
-  text: string;
-  fontSize: number;
-  lineHeight: number;
-  fontFamily: string;
-  nonTrainingDisplay: NonTrainingDisplay;
-  /** Optional multi-chapter content. If provided, overrides `text`. */
+/** What to read. Comes from the launcher (pasted text or a loaded book). */
+export interface ReadingSource {
+  text?: string;
+  /** Multi-chapter content. If provided, overrides `text`. */
   chapters?: BookChapterData[];
   /** Starting chapter index (default 0) */
   startChapter?: number;
 }
 
-const DEFAULT_READING_SETTINGS: MonocularReadingSettings = {
-  text: 'No text provided. Please paste reading text on the launcher page.',
-  fontSize: 48,
-  lineHeight: 1.6,
-  fontFamily: 'sans-serif',
-  nonTrainingDisplay: 'blank',
-};
+const PLACEHOLDER_TEXT = 'No text provided. Please paste reading text on the launcher page.';
 
 // Visual constants
 const PANEL_W = 1.7;
@@ -68,137 +55,87 @@ const BG_RGB = { r: 0x16, g: 0x11, b: 0x1e };
 const FG_RGB = { r: 0xe0, g: 0xd6, b: 0xcc };
 
 export class MonocularReadingExercise extends BaseExercise {
-  readonly name = 'Monocular Reading';
-  readonly description = 'Read text with your training eye only. Strengthens amblyopic eye neural pathways.';
-  readonly type = 'monocular' as const;
-
-  private settings: MonocularReadingSettings;
-  private contrastEngine: ContrastEngine | null = null;
+  private source: ReadingSource;
+  private fontSize = 48;
+  private lineHeight = 1.6;
+  private fontFamily = 'sans-serif';
+  private nonTrainingDisplay: NonTrainingDisplay = 'blank';
 
   // Chapter management
   private chapters: BookChapterData[] = [];
-  private currentChapter: number = 0;
+  private currentChapter = 0;
 
   // Page management for current chapter
   private pages: string[] = [];
-  private currentPage: number = 0;
-  private pagesRead: number = 0;
-  private chaptersRead: number = 0;
+  private currentPage = 0;
+  private pagesRead = 0;
+  private chaptersRead = 0;
 
-  private renderer: PerEyeRenderer | null = null;
-  private input: InputManager | null = null;
-  private unsubInput: (() => void) | null = null;
+  private textRenderer = new TextRenderer();
+  // Room for two textures per page in dichoptic mode
+  private textureCache = this.own(new TextureCache(20));
 
-  private textRenderer: TextRenderer;
-  private textureCache: TextureCache;
+  // Training eye
+  private textMaterial!: THREE.MeshBasicMaterial;
+  private pageIndicatorMaterial!: THREE.MeshBasicMaterial;
+  private progressMaterial!: THREE.MeshBasicMaterial;
 
-  // Scene objects — training eye
-  private textMesh: THREE.Mesh | null = null;
-  private textMaterial: THREE.MeshBasicMaterial | null = null;
-  private pageIndicatorMesh: THREE.Mesh | null = null;
-  private pageIndicatorMaterial: THREE.MeshBasicMaterial | null = null;
-  private progressMesh: THREE.Mesh | null = null;
-  private progressMaterial: THREE.MeshBasicMaterial | null = null;
+  // Non-training eye
+  private nonTrainingMaterial!: THREE.MeshBasicMaterial;
 
-  // Scene objects — non-training eye
-  private nonTrainingMesh: THREE.Mesh | null = null;
-  private nonTrainingMaterial: THREE.MeshBasicMaterial | null = null;
-
-  // Scene objects — shared (both eyes)
-  private envSphereMesh: THREE.Mesh | null = null;
-  private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private glowMesh: THREE.Mesh | null = null;
-  private glowMaterial: THREE.MeshBasicMaterial | null = null;
-
-  private exitCallback: (() => void) | null = null;
-  private contrastChangedCallback: ((contrast: number) => void) | null = null;
-
-  constructor(settings?: Partial<MonocularReadingSettings>) {
+  constructor(source: ReadingSource = {}) {
     super();
-    this.settings = { ...DEFAULT_READING_SETTINGS, ...settings };
-    this.textRenderer = new TextRenderer();
-    // Larger cache for dichoptic mode (2 textures per page)
-    this.textureCache = new TextureCache(20);
-  }
-
-  setExitCallback(cb: () => void): void {
-    this.exitCallback = cb;
-  }
-
-  setContrastChangedCallback(cb: (contrast: number) => void): void {
-    this.contrastChangedCallback = cb;
+    this.source = source;
   }
 
   get isDichoptic(): boolean {
-    return this.settings.nonTrainingDisplay === 'dichoptic';
+    return this.nonTrainingDisplay === 'dichoptic';
   }
 
-  async setup(config: ExerciseConfig): Promise<void> {
-    this.renderer = config.renderer;
-    this.input = config.input;
-    this.contrastEngine = config.contrast;
+  protected setup(): void {
+    const settings = this.ctx.settings;
+    this.fontSize = settings.fontSize;
+    this.lineHeight = settings.lineHeight;
+    this.fontFamily = settings.fontFamily;
+    this.nonTrainingDisplay = settings.nonTrainingDisplay;
 
     // Build chapter list
-    if (this.settings.chapters?.length) {
-      this.chapters = this.settings.chapters;
-    } else {
-      this.chapters = [{ title: '', text: this.settings.text }];
-    }
-    this.currentChapter = this.settings.startChapter ?? 0;
-    this.pagesRead = 0;
-    this.chaptersRead = 0;
+    this.chapters = this.source.chapters?.length
+      ? this.source.chapters
+      : [{ title: '', text: this.source.text || PLACEHOLDER_TEXT }];
+    this.currentChapter = this.source.startChapter ?? 0;
 
     // Paginate first chapter
     this.loadChapter(this.currentChapter);
 
-    // --- Environment (both eyes) ---
-    this.createEnvironment();
-
-    // --- Glow behind text panel (training eye) ---
+    this.addEnvironment();
     this.createGlow();
 
     // --- Training eye content ---
 
-    const planeGeo = new THREE.PlaneGeometry(PANEL_W, PANEL_H);
     this.textMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       side: THREE.FrontSide,
     });
-    this.textMesh = new THREE.Mesh(planeGeo, this.textMaterial);
-    this.textMesh.position.set(0, PANEL_Y, PANEL_Z);
-    this.renderer.addToTrainingEye(this.textMesh);
+    this.add(new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W, PANEL_H), this.textMaterial), 'training')
+      .position.set(0, PANEL_Y, PANEL_Z);
 
     // Progress bar below text panel
-    const progressGeo = new THREE.PlaneGeometry(PANEL_W, 0.012);
-    this.progressMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-    });
-    this.progressMesh = new THREE.Mesh(progressGeo, this.progressMaterial);
-    this.progressMesh.position.set(0, PANEL_Y - PANEL_H / 2 - 0.02, PANEL_Z);
-    this.renderer.addToTrainingEye(this.progressMesh);
+    this.progressMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+    this.add(new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W, 0.012), this.progressMaterial), 'training')
+      .position.set(0, PANEL_Y - PANEL_H / 2 - 0.02, PANEL_Z);
 
     // Page/chapter indicator below progress bar
-    const indicatorGeo = new THREE.PlaneGeometry(1.4, 0.06);
-    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-    });
-    this.pageIndicatorMesh = new THREE.Mesh(indicatorGeo, this.pageIndicatorMaterial);
-    this.pageIndicatorMesh.position.set(0, PANEL_Y - PANEL_H / 2 - 0.06, PANEL_Z);
-    this.renderer.addToTrainingEye(this.pageIndicatorMesh);
+    this.pageIndicatorMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+    this.add(new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.06), this.pageIndicatorMaterial), 'training')
+      .position.set(0, PANEL_Y - PANEL_H / 2 - 0.06, PANEL_Z);
 
     // --- Non-training eye content ---
 
-    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-    });
-    const nonTrainingGeo = new THREE.PlaneGeometry(PANEL_W, PANEL_H);
-    this.nonTrainingMesh = new THREE.Mesh(nonTrainingGeo, this.nonTrainingMaterial);
-    this.nonTrainingMesh.position.set(0, PANEL_Y, PANEL_Z);
-    this.renderer.addToNonTrainingEye(this.nonTrainingMesh);
+    this.nonTrainingMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+    this.add(new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W, PANEL_H), this.nonTrainingMaterial), 'fellow')
+      .position.set(0, PANEL_Y, PANEL_Z);
 
     // Render initial content
     this.renderCurrentPage();
@@ -206,8 +143,7 @@ export class MonocularReadingExercise extends BaseExercise {
     this.renderPageIndicator();
     this.renderProgressBar();
 
-    // Set up input
-    this.unsubInput = this.input.onAction((action) => {
+    this.onInput((action) => {
       switch (action) {
         case 'page-forward':
         case 'select':
@@ -228,98 +164,48 @@ export class MonocularReadingExercise extends BaseExercise {
         case 'button-b':
           this.adjustContrast(0.05);
           break;
-        case 'exit':
-          this.exitCallback?.();
-          break;
       }
     });
 
-    this.markStarted();
+    this.updateStatus();
   }
 
-  update(_dt: number): void {
-    // Static per page; input is event-driven.
+  protected onTeardown(): void {
+    // Materials only point at cached page textures; the cache disposes them.
+    this.textMaterial.map = null;
+    this.nonTrainingMaterial.map = null;
   }
 
-  teardown(): void {
-    this.markStopped();
-    this.unsubInput?.();
-
-    if (this.renderer) {
-      if (this.textMesh) this.renderer.removeFromScene(this.textMesh);
-      if (this.pageIndicatorMesh) this.renderer.removeFromScene(this.pageIndicatorMesh);
-      if (this.progressMesh) this.renderer.removeFromScene(this.progressMesh);
-      if (this.nonTrainingMesh) this.renderer.removeFromScene(this.nonTrainingMesh);
-      if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
-      if (this.glowMesh) this.renderer.removeFromScene(this.glowMesh);
-    }
-
-    this.textMesh?.geometry.dispose();
-    this.textMaterial?.map?.dispose();
-    this.textMaterial?.dispose();
-    this.pageIndicatorMesh?.geometry.dispose();
-    this.pageIndicatorMaterial?.map?.dispose();
-    this.pageIndicatorMaterial?.dispose();
-    this.progressMesh?.geometry.dispose();
-    this.progressMaterial?.map?.dispose();
-    this.progressMaterial?.dispose();
-    this.nonTrainingMesh?.geometry.dispose();
-    this.nonTrainingMaterial?.map?.dispose();
-    this.nonTrainingMaterial?.dispose();
-    this.envSphereMesh?.geometry.dispose();
-    this.envMaterial?.map?.dispose();
-    this.envMaterial?.dispose();
-    this.glowMesh?.geometry.dispose();
-    this.glowMaterial?.map?.dispose();
-    this.glowMaterial?.dispose();
-    this.textureCache.clear();
-
-    this.textMesh = null;
-    this.textMaterial = null;
-    this.pageIndicatorMesh = null;
-    this.pageIndicatorMaterial = null;
-    this.progressMesh = null;
-    this.progressMaterial = null;
-    this.nonTrainingMesh = null;
-    this.nonTrainingMaterial = null;
-    this.envSphereMesh = null;
-    this.envMaterial = null;
-    this.glowMesh = null;
-    this.glowMaterial = null;
-    this.renderer = null;
-    this.input = null;
-    this.contrastEngine = null;
-  }
-
-  getSessionStats(): SessionStats {
-    const contrast = this.contrastEngine?.getDominantContrast() ?? 0;
+  getStats(): ExerciseStats {
+    const contrast = this.ctx.contrast.getDominantContrast();
     return {
-      exercise: this.isDichoptic ? 'dichoptic-reading' : 'monocular-reading',
-      durationMs: this.getElapsedMs(),
       pagesRead: this.pagesRead,
       totalPages: this.pages.length,
       currentPage: this.currentPage + 1,
       chaptersRead: this.chaptersRead,
       totalChapters: this.chapters.length,
       currentChapter: this.currentChapter + 1,
-      mode: this.settings.nonTrainingDisplay,
+      mode: this.nonTrainingDisplay,
       fellowEyeContrast: this.isDichoptic ? Math.round(contrast * 100) : 0,
     };
   }
 
-  // --- Environment ---
-
-  private createEnvironment(): void {
-    if (!this.renderer) return;
-
-    const env = createEnvironmentSphere(this.renderer);
-    this.envSphereMesh = env.mesh;
-    this.envMaterial = env.material;
+  private updateStatus(): void {
+    let status: string;
+    if (this.isDichoptic) {
+      const pct = Math.round(this.ctx.contrast.getDominantContrast() * 100);
+      status = `Dichoptic ${pct}% — A/B adjust, grip exit`;
+    } else if (this.chapters.length > 1) {
+      status = 'Reading — ↔ page, ↕ chapter, grip exit';
+    } else {
+      status = 'Reading — grip exit';
+    }
+    this.ctx.hud.setStatus(status);
   }
 
-  private createGlow(): void {
-    if (!this.renderer) return;
+  // --- Environment ---
 
+  private createGlow(): void {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -331,16 +217,13 @@ export class MonocularReadingExercise extends BaseExercise {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 512, 512);
 
-    const glowTexture = new THREE.CanvasTexture(canvas);
-    const glowGeo = new THREE.PlaneGeometry(PANEL_W * 1.8, PANEL_H * 1.8);
-    this.glowMaterial = new THREE.MeshBasicMaterial({
-      map: glowTexture,
+    const material = new THREE.MeshBasicMaterial({
+      map: new THREE.CanvasTexture(canvas),
       transparent: true,
       depthWrite: false,
     });
-    this.glowMesh = new THREE.Mesh(glowGeo, this.glowMaterial);
-    this.glowMesh.position.set(0, PANEL_Y, PANEL_Z - 0.05);
-    this.renderer.addToTrainingEye(this.glowMesh);
+    this.add(new THREE.Mesh(new THREE.PlaneGeometry(PANEL_W * 1.8, PANEL_H * 1.8), material), 'training')
+      .position.set(0, PANEL_Y, PANEL_Z - 0.05);
   }
 
   // --- Pagination ---
@@ -351,9 +234,9 @@ export class MonocularReadingExercise extends BaseExercise {
 
     this.currentChapter = index;
     this.pages = paginateByFit(chapter.text, {
-      fontSize: this.settings.fontSize,
-      lineHeight: this.settings.lineHeight,
-      fontFamily: this.settings.fontFamily,
+      fontSize: this.fontSize,
+      lineHeight: this.lineHeight,
+      fontFamily: this.fontFamily,
       paddingX: 100,
       paddingY: 100,
     });
@@ -377,7 +260,7 @@ export class MonocularReadingExercise extends BaseExercise {
     if (this.currentPage < this.pages.length - 1) {
       this.currentPage++;
       this.pagesRead++;
-      this.input?.haptic('tick');
+      this.ctx.input.haptic('tick');
       this.onPageChanged();
     } else if (this.currentChapter < this.chapters.length - 1) {
       this.nextChapter();
@@ -387,7 +270,7 @@ export class MonocularReadingExercise extends BaseExercise {
   private prevPage(): void {
     if (this.currentPage > 0) {
       this.currentPage--;
-      this.input?.haptic('tick');
+      this.ctx.input.haptic('tick');
       this.onPageChanged();
     } else if (this.currentChapter > 0) {
       this.currentChapter--;
@@ -400,7 +283,7 @@ export class MonocularReadingExercise extends BaseExercise {
   private nextChapter(): void {
     if (this.currentChapter < this.chapters.length - 1) {
       this.chaptersRead++;
-      this.input?.haptic('light');
+      this.ctx.input.haptic('light');
       this.loadChapter(this.currentChapter + 1);
       this.onPageChanged();
     }
@@ -408,7 +291,7 @@ export class MonocularReadingExercise extends BaseExercise {
 
   private prevChapter(): void {
     if (this.currentChapter > 0) {
-      this.input?.haptic('light');
+      this.ctx.input.haptic('light');
       this.loadChapter(this.currentChapter - 1);
       this.onPageChanged();
     }
@@ -419,36 +302,30 @@ export class MonocularReadingExercise extends BaseExercise {
    * Only applies in dichoptic mode.
    */
   private adjustContrast(delta: number): void {
-    if (!this.isDichoptic || !this.contrastEngine) return;
+    if (!this.isDichoptic) return;
 
-    const current = this.contrastEngine.getDominantContrast();
-    const next = Math.max(0, Math.min(1, current + delta));
-    this.contrastEngine.setDominantContrast(next);
+    const contrast = this.ctx.contrast;
+    contrast.setDominantContrast(Math.round((contrast.getDominantContrast() + delta) * 100) / 100);
 
-    // Clear cached non-training textures (contrast changed)
+    // Cached non-training textures carry the old contrast
     this.textureCache.clear();
-
-    // Re-render non-training eye with new contrast
+    this.renderCurrentPage();
     this.renderNonTrainingEye();
-
-    // Notify main.ts to update HUD
-    this.contrastChangedCallback?.(next);
+    this.updateStatus();
   }
 
   // --- Rendering ---
 
   private renderCurrentPage(): void {
-    if (!this.textMaterial) return;
-
-    const cacheKey = `ch${this.currentChapter}-p${this.currentPage}-${this.settings.fontSize}-${this.settings.fontFamily}`;
+    const cacheKey = `ch${this.currentChapter}-p${this.currentPage}-${this.fontSize}-${this.fontFamily}`;
 
     let texture = this.textureCache.get(cacheKey);
     if (!texture) {
       texture = this.textRenderer.renderToTexture({
         text: this.pages[this.currentPage] ?? '',
-        fontSize: this.settings.fontSize,
-        lineHeight: this.settings.lineHeight,
-        fontFamily: this.settings.fontFamily,
+        fontSize: this.fontSize,
+        lineHeight: this.lineHeight,
+        fontFamily: this.fontFamily,
         color: COLORS.TEXT_PRIMARY,
         background: COLORS.PANEL_BG,
         paddingX: 100,
@@ -465,17 +342,15 @@ export class MonocularReadingExercise extends BaseExercise {
   }
 
   private renderNonTrainingEye(): void {
-    if (!this.nonTrainingMaterial) return;
-
     let texture: THREE.CanvasTexture;
 
-    switch (this.settings.nonTrainingDisplay) {
+    switch (this.nonTrainingDisplay) {
       case 'dichoptic': {
         // Same text as training eye, but at reduced contrast
-        const contrast = this.contrastEngine?.getDominantContrast() ?? 0.2;
+        const contrast = this.ctx.contrast.getDominantContrast();
         const dimColor = lerpColor(BG_RGB, FG_RGB, contrast);
 
-        const cacheKey = `nt-ch${this.currentChapter}-p${this.currentPage}-${this.settings.fontSize}-${this.settings.fontFamily}-c${Math.round(contrast * 100)}`;
+        const cacheKey = `nt-ch${this.currentChapter}-p${this.currentPage}-${this.fontSize}-${this.fontFamily}-c${Math.round(contrast * 100)}`;
         const cached = this.textureCache.get(cacheKey) as THREE.CanvasTexture | undefined;
 
         if (cached) {
@@ -483,9 +358,9 @@ export class MonocularReadingExercise extends BaseExercise {
         } else {
           texture = this.textRenderer.renderToTexture({
             text: this.pages[this.currentPage] ?? '',
-            fontSize: this.settings.fontSize,
-            lineHeight: this.settings.lineHeight,
-            fontFamily: this.settings.fontFamily,
+            fontSize: this.fontSize,
+            lineHeight: this.lineHeight,
+            fontFamily: this.fontFamily,
             color: dimColor,
             background: COLORS.PANEL_BG,
             paddingX: 100,
@@ -521,8 +396,6 @@ export class MonocularReadingExercise extends BaseExercise {
   }
 
   private renderProgressBar(): void {
-    if (!this.progressMaterial) return;
-
     const progress = this.pages.length > 1
       ? (this.currentPage) / (this.pages.length - 1)
       : 1;
@@ -544,13 +417,12 @@ export class MonocularReadingExercise extends BaseExercise {
     const texture = new THREE.CanvasTexture(canvas);
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
+    this.progressMaterial.map?.dispose();
     this.progressMaterial.map = texture;
     this.progressMaterial.needsUpdate = true;
   }
 
   private renderPageIndicator(): void {
-    if (!this.pageIndicatorMaterial) return;
-
     const chapterTitle = this.chapters[this.currentChapter]?.title;
     const hasChapters = this.chapters.length > 1;
 
@@ -573,6 +445,7 @@ export class MonocularReadingExercise extends BaseExercise {
       paddingY: 10,
     });
 
+    this.pageIndicatorMaterial.map?.dispose();
     this.pageIndicatorMaterial.map = texture;
     this.pageIndicatorMaterial.needsUpdate = true;
   }

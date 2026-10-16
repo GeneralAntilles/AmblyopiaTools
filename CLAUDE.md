@@ -5,38 +5,41 @@
 ```bash
 npm run dev        # HTTPS dev server on all interfaces (https://local-ip:5173)
 npm run build      # tsc + vite build → dist/
-npm run test       # vitest run
+npm run test       # vitest run (headless session tests)
 npx tsc --noEmit   # type check only
 ```
+
+**Desktop preview:** open `https://localhost:5173/?preview` and "Enter Preview" runs the selected exercise in the browser, both eyes side by side (left eye on the left), keyboard standing in for controllers (arrows = stick, Space = trigger, A/B, Esc = grip). Use it to check per-eye content without a headset.
 
 HTTPS is required — WebXR won't activate on plain HTTP. The `@vitejs/plugin-basic-ssl@1` (v1 for Vite 5) handles this with a self-signed cert. Quest Browser will show a certificate warning; accept it.
 
 ## Architecture
 
 ```
-index.html             → DOM targets for 2D launcher
-src/main.ts            → boot, XR lifecycle, exercise orchestration
+index.html                 → DOM targets for 2D launcher
+src/main.ts                → boot, wires WebXR (or desktop preview) to the SessionHost
 src/core/
-  xr-session.ts        → WebXR session request/end (no render loop)
-  per-eye-renderer.ts  → Three.js layers-based per-eye rendering
-  input-manager.ts     → Quest controller input → action events
-  contrast-engine.ts   → Dichoptic contrast balancing (3-up/1-down staircase)
-  settings-store.ts    → IndexedDB persistence via idb
+  session-host.ts          → runs one session: build exercise, tick, teardown, record, progression
+  xr-session.ts            → WebXR session request/end (no render loop)
+  per-eye-renderer.ts      → EyeRenderer interface + Three.js layers-based WebXR implementation
+  input-manager.ts         → Quest controller input → action events (dispatch() for non-XR input)
+  contrast-engine.ts       → Fellow-eye contrast for the session (change listeners persist it)
+  contrast-progression.ts  → Cross-session +2% rule
+  settings-store.ts        → IndexedDB persistence via idb
 src/exercises/
-  base-exercise.ts     → Abstract: setup(), update(dt), teardown(), getSessionStats()
-  monocular-reading/   → Paginated text reader with chapter/EPUB support + dichoptic mode
-  suppression-check/   → Worth 4-dot test (per-eye dots, 10-trial diagnostic)
-  brock-string/        → Virtual Brock string (convergence training, 3 beads at depth)
-  vergence-training/   → Binocular disparity rings (convergence/divergence staircase)
+  registry.ts              → EXERCISES[] — the only list of exercises
+  definition.ts            → ExerciseDefinition: launcher card, factory, summary/history, progression rule
+  base-exercise.ts         → BaseExercise: scene ownership, input, timers, results card
+  <name>/<name>.ts         → the exercise (extends BaseExercise)
+  <name>/definition.ts     → its ExerciseDefinition
 src/ui/
-  launcher.ts          → 2D settings, file loading, exercise selection, session history
-  vr-hud.ts            → In-VR status + timer (both-eye HUD)
-  session-summary.ts   → Post-session stats display
-src/utils/
-  text-renderer.ts     → Canvas text → Three.js CanvasTexture pipeline
-  texture-cache.ts     → LRU texture cache (prevents GPU memory bloat)
-  epub-loader.ts       → EPUB parsing via epubjs
-  analytics.ts         → Local session history (IndexedDB)
+  launcher.ts              → 2D settings, file loading, exercise selection, session history
+  text-panel.ts            → TextPanel + shared instruction/feedback/results text styles
+  vr-hud.ts                → In-VR status + timer (both-eye HUD)
+  session-summary.ts       → Post-session stats display
+src/dev/desktop-preview.ts → ?preview renderer (side-by-side eyes, keyboard input)
+src/utils/                 → text rendering, texture cache, EPUB loading, formatting
+tests/                     → headless session tests (see Testing)
 ```
 
 ## Per-Eye Rendering (critical to understand)
@@ -79,6 +82,7 @@ When `renderer.xr.enabled = true`, calling `renderer.render()` ignores any manua
 - `selectstart` = trigger, `squeezestart` = grip
 - `gp.buttons[4]` = A/X button, `gp.buttons[5]` = B/Y button (edge-triggered in InputManager)
 - Input actions: `page-forward`, `page-back`, `chapter-next`, `chapter-prev`, `select`, `exit`, `button-a`, `button-b`
+- `exit` (grip) is handled by `SessionHost`, which asks `main.ts` to end the session — exercises never see it
 
 ### Canvas Text Measurement
 `paginateByFit()` and `renderToTexture()` must use identical font/padding settings or pages won't match the rendered output. Both use the same `wordWrap()` function internally.
@@ -88,17 +92,25 @@ Use `'rgba(0,0,0,0)'` as background + `transparent: true` on the material for fl
 
 ## Adding a New Exercise
 
-1. Create `src/exercises/<name>/<name>.ts` extending `BaseExercise`
-2. Implement `setup()`, `update(dt)`, `teardown()`, `getSessionStats()`
-3. Add scene objects via `renderer.addToTrainingEye()` / `addToNonTrainingEye()` / `addToBothEyes()`
-4. Subscribe to input via `input.onAction(callback)` — return the unsub function
-5. Clean up all geometry, materials, and textures in `teardown()`
-6. Add an entry to `EXERCISES[]` in `launcher.ts` with `available: true`
-7. Add a case to `startExercise()` in `main.ts`
+1. Create `src/exercises/<name>/<name>.ts` extending `BaseExercise`:
+   - `setup()` builds the scene with `this.add(obj, 'both' | 'training' | 'fellow')`, text with `this.panel(width)`, and subscribes with `this.onInput(cb)`. Set the HUD line with `this.ctx.hud.setStatus()`.
+   - `onUpdate(dt)` for animation; `this.after(ms, fn)` for delays; `this.now()` for reaction times. Don't use `Date.now()` or `setTimeout` — the exercise clock keeps tests deterministic.
+   - `getStats()` returns the metrics to record.
+   - Finish with `this.showResults(lines, position)`.
+   - Don't handle `exit` (the host does) and don't write teardown for things added via `add()`/`own()` — they're disposed automatically.
+2. Create `src/exercises/<name>/definition.ts` exporting an `ExerciseDefinition` (card text, `create()`, `summarize()`, `historyDetail()`, optional `settingsSection` and `progressionBlocker()`).
+3. Add it to `EXERCISES` in `src/exercises/registry.ts`.
+4. Add a session test in `tests/sessions.test.ts` that plays it to completion.
+
+## Testing
+
+Tests are feature-level: `tests/support/harness.ts` runs the real `SessionHost`, exercises and settings store (fake IndexedDB) with a headless renderer, scripted controller input and a manual clock. Write tests the way a user plays — start an exercise, press buttons, let time pass, check what was recorded or what each eye sees (`renderer.visibleMeshes('training' | 'fellow')`).
+
+Prefer these over unit tests of individual functions; don't add tests that pin internal structure. A focused unit test is fine only where a feature test can't reach the behaviour.
 
 ## Dependencies
 
 - **three** — 3D rendering + WebXR. Using ^0.160.0 (not latest — API stability)
 - **epubjs** — EPUB parsing. Types are loose; heavy use of `as any`
 - **idb** — Promise-based IndexedDB wrapper
-- Dev: TypeScript 5.3, Vite 5, Vitest
+- Dev: TypeScript 5.3, Vite 5, Vitest (jsdom, vitest-canvas-mock, fake-indexeddb)

@@ -1,55 +1,44 @@
 /**
  * OpenVisionTherapy — main entry point.
  *
- * Initializes the launcher UI, handles WebXR session lifecycle,
- * and orchestrates exercises.
+ * Boots the launcher and connects the WebXR session lifecycle to the
+ * SessionHost, which runs the exercise itself.
  */
 
 import { XRSessionManager } from './core/xr-session';
 import { PerEyeRenderer, type EyeSide } from './core/per-eye-renderer';
-import { ContrastEngine } from './core/contrast-engine';
 import { InputManager } from './core/input-manager';
 import { SettingsStore } from './core/settings-store';
-import { Analytics } from './utils/analytics';
+import { SessionHost } from './core/session-host';
 import { Launcher } from './ui/launcher';
 import { VRHud } from './ui/vr-hud';
 import { showSessionSummary } from './ui/session-summary';
-import { evaluateProgression, type ProgressionDecision } from './core/contrast-progression';
-import { MonocularReadingExercise } from './exercises/monocular-reading/monocular-reading';
-import { SuppressionCheckExercise } from './exercises/suppression-check/suppression-check';
-import { BrockStringExercise } from './exercises/brock-string/brock-string';
-import { VergenceTrainingExercise } from './exercises/vergence-training/vergence-training';
-import { DepthScaffoldingExercise } from './exercises/depth-scaffolding/depth-scaffolding';
-import { Dichoptic2048Exercise } from './exercises/dichoptic-2048/dichoptic-2048';
-import type { BaseExercise } from './exercises/base-exercise';
+import { DesktopPreviewRenderer, isPreviewMode } from './dev/desktop-preview';
 
-// Global instances
 const settingsStore = new SettingsStore();
-const analytics = new Analytics(settingsStore);
 const launcher = new Launcher(settingsStore);
+const host = new SessionHost(settingsStore);
 
-let xrManager: XRSessionManager | null = null;
-let perEyeRenderer: PerEyeRenderer | null = null;
-let inputManager: InputManager | null = null;
-let contrastEngine: ContrastEngine | null = null;
-let vrHud: VRHud | null = null;
-let activeExercise: BaseExercise | null = null;
-let lastFrameTime = 0;
+/** XR-side resources for the current session. */
+interface XRResources {
+  xr: XRSessionManager;
+  renderer: PerEyeRenderer;
+  input: InputManager;
+  hud: VRHud;
+}
+let xrResources: XRResources | null = null;
+let preview: { renderer: DesktopPreviewRenderer; input: InputManager; hud: VRHud } | null = null;
 
-/**
- * Boot the application.
- */
 async function init(): Promise<void> {
-  // Initialize launcher
   await launcher.init();
 
-  // Check WebXR support
   const vrBtn = document.getElementById('enter-vr-btn') as HTMLButtonElement;
   const statusDiv = document.getElementById('webxr-status')!;
 
-  const supported = await XRSessionManager.isSupported();
-
-  if (supported) {
+  if (isPreviewMode()) {
+    vrBtn.disabled = false;
+    vrBtn.textContent = 'Enter Preview';
+  } else if (await XRSessionManager.isSupported()) {
     vrBtn.disabled = false;
     vrBtn.textContent = 'Enter VR';
   } else {
@@ -59,13 +48,44 @@ async function init(): Promise<void> {
       '<div class="no-webxr">WebXR is not available in this browser. Open this page in a VR headset browser (e.g., Meta Quest Browser) to use immersive mode.</div>';
   }
 
-  // Wire up Enter VR
-  launcher.setEnterVRCallback(handleEnterVR);
+  launcher.setEnterVRCallback(isPreviewMode() ? handleEnterPreview : handleEnterVR);
+  host.onExitRequested = () => {
+    if (preview) endPreview();
+    else xrResources?.xr.end();
+  };
 }
 
-/**
- * Handle the "Enter VR" button click.
- */
+/** Desktop stand-in for VR (see dev/desktop-preview.ts). */
+async function handleEnterPreview(exerciseId: string): Promise<void> {
+  const canvas = document.getElementById('xr-canvas') as HTMLCanvasElement;
+  canvas.style.display = 'block';
+
+  const settings = await settingsStore.getSettings();
+  const renderer = new DesktopPreviewRenderer(canvas, settings.trainingEye);
+  const input = new InputManager();
+  const hud = new VRHud();
+  renderer.addToBothEyes(hud.getGroup());
+  preview = { renderer, input, hud };
+
+  await host.start(exerciseId, launcher.getLaunchOptions(), { renderer, input, hud });
+  renderer.start(input, (dt) => host.tick(dt));
+}
+
+async function endPreview(): Promise<void> {
+  if (!preview) return;
+  const { renderer, input, hud } = preview;
+  preview = null;
+  (document.getElementById('xr-canvas') as HTMLCanvasElement).style.display = 'none';
+
+  const outcome = await host.end();
+  hud.dispose();
+  input.dispose();
+  renderer.dispose();
+
+  if (outcome) showSessionSummary(document.getElementById('session-summary')!, outcome);
+  launcher.renderSessionHistory();
+}
+
 async function handleEnterVR(exerciseId: string): Promise<void> {
   const vrBtn = document.getElementById('enter-vr-btn') as HTMLButtonElement;
   const canvas = document.getElementById('xr-canvas') as HTMLCanvasElement;
@@ -76,56 +96,38 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
   try {
     const settings = await settingsStore.getSettings();
 
-    // 1. Request the XR session
-    xrManager = new XRSessionManager();
-    xrManager.setOnSessionEnded(handleSessionEnded);
-    const session = await xrManager.requestSession();
+    const xr = new XRSessionManager();
+    xr.setOnSessionEnded(handleSessionEnded);
+    const session = await xr.requestSession();
 
     canvas.style.display = 'block';
 
-    // 2. Create renderer (Three.js owns the XR render loop)
-    perEyeRenderer = new PerEyeRenderer(canvas);
-    perEyeRenderer.setTrainingEye(settings.trainingEye as EyeSide);
+    // Three.js owns the XR render loop
+    const renderer = new PerEyeRenderer(canvas);
+    renderer.setTrainingEye(settings.trainingEye as EyeSide);
 
-    // 3. Input
-    inputManager = new InputManager();
-    inputManager.setSession(session);
+    const input = new InputManager();
+    input.setSession(session);
 
-    // 4. Contrast engine
-    contrastEngine = new ContrastEngine({
-      dominantEyeContrast: settings.contrastDominant,
-      amblyopicEyeContrast: settings.contrastAmblyopic,
-    });
+    const hud = new VRHud();
+    renderer.addToBothEyes(hud.getGroup());
 
-    // 5. VR HUD (visible to both eyes)
-    vrHud = new VRHud();
-    perEyeRenderer.addToBothEyes(vrHud.getGroup());
+    xrResources = { xr, renderer, input, hud };
 
-    // 6. Start the exercise
-    await startExercise(exerciseId);
+    await host.start(exerciseId, launcher.getLaunchOptions(), { renderer, input, hud });
 
-    // 7. Analytics
-    analytics.startSession(exerciseId);
-
-    // 8. Per-frame callback
-    perEyeRenderer.onFrame((time, _frame) => {
+    let lastFrameTime = 0;
+    renderer.onFrame((time) => {
       const dt = lastFrameTime ? (time - lastFrameTime) / 1000 : 0;
       lastFrameTime = time;
-
-      inputManager?.update();
-      activeExercise?.update(dt);
-
-      if (vrHud && analytics.getActiveSession()) {
-        const elapsed = Date.now() - analytics.getActiveSession()!.startTime;
-        vrHud.updateTimer(elapsed);
-      }
+      input.update();
+      host.tick(dt);
     });
 
-    // 9. Hand session to Three.js — starts the render loop
-    await perEyeRenderer.startSession(session);
-
+    await renderer.startSession(session);
   } catch (error) {
     console.error('Failed to start VR:', error);
+    await xrResources?.xr.end();
     vrBtn.disabled = false;
     vrBtn.textContent = 'Enter VR';
 
@@ -134,226 +136,29 @@ async function handleEnterVR(exerciseId: string): Promise<void> {
   }
 }
 
-/**
- * Called when the XR session ends (user exits VR or grip exit).
- */
+/** Called when the XR session ends (grip exit or leaving VR from the system menu). */
 async function handleSessionEnded(): Promise<void> {
   const vrBtn = document.getElementById('enter-vr-btn') as HTMLButtonElement;
   const canvas = document.getElementById('xr-canvas') as HTMLCanvasElement;
-
   canvas.style.display = 'none';
 
-  // Get stats before teardown
-  const stats = activeExercise?.getSessionStats();
+  const outcome = await host.end();
 
-  // Teardown
-  activeExercise?.teardown();
-  activeExercise = null;
-
-  const record = await analytics.endSession(stats);
-
-  vrHud?.dispose();
-  vrHud = null;
-  inputManager?.dispose();
-  inputManager = null;
-  perEyeRenderer?.dispose();
-  perEyeRenderer = null;
-  contrastEngine = null;
-  xrManager = null;
-  lastFrameTime = 0;
-
-  // Evaluate contrast progression
-  let progression: ProgressionDecision | undefined;
-  if (stats) {
-    const currentSettings = await settingsStore.getSettings();
-    if (currentSettings.contrastProgressionEnabled) {
-      progression = evaluateProgression(stats, currentSettings.contrastDominant, {
-        increment: currentSettings.contrastAutoIncrement,
-      });
-
-      if (progression.shouldIncrement) {
-        await settingsStore.saveSettings({
-          contrastDominant: progression.newContrast,
-          contrastProgressionHistory: [
-            ...currentSettings.contrastProgressionHistory.slice(-99),
-            {
-              timestamp: Date.now(),
-              contrast: progression.newContrast,
-              exercise: stats.exercise,
-              fusionRate: stats.fusionRate as number | undefined,
-              auto: true,
-            },
-          ],
-        });
-      }
-    }
-
-    // Track exercise order index for recommender
-    // Map dichoptic-reading back to monocular-reading for order tracking
-    const latestSettings = await settingsStore.getSettings();
-    const exerciseName = stats.exercise === 'dichoptic-reading' ? 'monocular-reading' : stats.exercise;
-    const exerciseIdx = latestSettings.exerciseOrder.indexOf(exerciseName);
-    if (exerciseIdx >= 0) {
-      await settingsStore.saveSetting('lastCompletedExerciseIndex', exerciseIdx);
-    }
+  if (xrResources) {
+    xrResources.hud.dispose();
+    xrResources.input.dispose();
+    xrResources.renderer.dispose();
+    xrResources = null;
   }
 
-  // Show session summary
-  if (stats) {
-    const summaryEl = document.getElementById('session-summary')!;
-    showSessionSummary(summaryEl, stats, progression);
+  if (outcome) {
+    showSessionSummary(document.getElementById('session-summary')!, outcome);
+    console.log('Session ended:', outcome.record);
   }
 
   vrBtn.disabled = false;
   vrBtn.textContent = 'Enter VR';
-
-  // Refresh session history on launcher
   launcher.renderSessionHistory();
-
-  console.log('Session ended:', record);
 }
 
-/**
- * Instantiate and set up the requested exercise.
- */
-async function startExercise(exerciseId: string): Promise<void> {
-  if (!perEyeRenderer || !inputManager || !contrastEngine) return;
-
-  switch (exerciseId) {
-    case 'monocular-reading': {
-      const readingText = launcher.getReadingText();
-      const currentSettings = launcher.getCurrentSettings();
-      const loadedBook = launcher.getLoadedBook();
-
-      // Build chapter data from loaded book if available
-      const chapters = loadedBook && loadedBook.chapters.length > 1
-        ? loadedBook.chapters.map((ch) => ({ title: ch.title, text: ch.text }))
-        : undefined;
-
-      const exercise = new MonocularReadingExercise({
-        text: readingText || undefined,
-        fontSize: currentSettings.fontSize as number,
-        lineHeight: currentSettings.lineHeight as number,
-        fontFamily: currentSettings.fontFamily as string,
-        nonTrainingDisplay: currentSettings.nonTrainingDisplay as 'blank' | 'fixation' | 'pattern' | 'dichoptic',
-        chapters,
-        startChapter: chapters ? launcher.getSelectedChapterIndex() : undefined,
-      });
-
-      exercise.setExitCallback(() => {
-        xrManager?.end();
-      });
-
-      // In-VR contrast adjustment callback
-      exercise.setContrastChangedCallback((contrast: number) => {
-        const pct = Math.round(contrast * 100);
-        vrHud?.updateStatus(`Dichoptic ${pct}% — A/B adjust, grip exit`);
-        // Persist the new value
-        settingsStore.saveSetting('contrastDominant', contrast);
-      });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-
-      const isDichoptic = currentSettings.nonTrainingDisplay === 'dichoptic';
-      const contrastPct = isDichoptic ? Math.round((contrastEngine?.getDominantContrast() ?? 0.2) * 100) : 0;
-      let statusText: string;
-      if (isDichoptic) {
-        statusText = `Dichoptic ${contrastPct}% — A/B adjust, grip exit`;
-      } else if (chapters) {
-        statusText = 'Reading — ↔ page, ↕ chapter, grip exit';
-      } else {
-        statusText = 'Reading — grip exit';
-      }
-      vrHud?.updateStatus(statusText);
-      break;
-    }
-
-    case 'suppression-check': {
-      const exercise = new SuppressionCheckExercise();
-      exercise.setExitCallback(() => { xrManager?.end(); });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-      vrHud?.updateStatus('Suppression Check — grip exit');
-      break;
-    }
-
-    case 'brock-string': {
-      const exercise = new BrockStringExercise();
-      exercise.setExitCallback(() => { xrManager?.end(); });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-      vrHud?.updateStatus('Brock String — trigger=fused, A=double, grip exit');
-      break;
-    }
-
-    case 'vergence-training': {
-      const exercise = new VergenceTrainingExercise();
-      exercise.setExitCallback(() => { xrManager?.end(); });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-      vrHud?.updateStatus('Vergence — trigger=fused, A=double, grip exit');
-      break;
-    }
-
-    case 'depth-scaffolding': {
-      const exercise = new DepthScaffoldingExercise();
-      exercise.setExitCallback(() => { xrManager?.end(); });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-      vrHud?.updateStatus('Depth — ←↑→ select, trigger confirm, grip exit');
-      break;
-    }
-
-    case 'dichoptic-2048': {
-      const exercise = new Dichoptic2048Exercise();
-      exercise.setExitCallback(() => { xrManager?.end(); });
-
-      await exercise.setup({
-        renderer: perEyeRenderer,
-        input: inputManager,
-        contrast: contrastEngine,
-      });
-
-      activeExercise = exercise;
-      vrHud?.updateStatus('2048 — flick to slide, A = new game, grip exit');
-      break;
-    }
-
-    default:
-      console.warn(`Exercise "${exerciseId}" not yet implemented`);
-      vrHud?.updateStatus(`Exercise "${exerciseId}" coming soon`);
-  }
-}
-
-// Boot
 init().catch(console.error);

@@ -28,44 +28,36 @@ npx serve dist
 
 ## Exercises
 
-### Available (Phase 1)
+| Exercise | Type | What it does |
+|---|---|---|
+| Reading | Monocular / dichoptic | Your own text or EPUB to the training eye; fellow eye sees the page at reduced contrast (dichoptic) or a blank/fixation/noise panel |
+| Dichoptic 2048 | Dichoptic | 2048 with tiles shown only to the training eye |
+| Depth Scaffolding | Binocular | Pick the closest object while monocular depth cues are stripped away, leaving only stereo disparity |
+| Suppression Check | Diagnostic | Worth 4-dot test at three distances, with vergence offset measurement |
+| Brock String | Binocular | Progressive near-point-of-convergence staircase |
+| Vergence Training | Binocular | Convergence/divergence staircase with disparity rings |
 
-**Monocular Reading** — Render paginated text to the training (amblyopic) eye only. The non-training eye sees a configurable blank screen, fixation cross, or low-contrast noise pattern. Controls: trigger/thumbstick to page, grip to exit.
+Fellow-eye contrast rises +2% after each successful session (auto-progression, on by default). Ideas and planned exercises live in [IDEAS.md](IDEAS.md).
 
-### Planned
+## Development
 
-**Dichoptic Tetris** — Falling pieces at full contrast to the amblyopic eye, placed pieces at reduced contrast to the dominant eye. Based on the signal integration paradigm from Li et al.
+```bash
+npm run dev     # HTTPS dev server — open on the headset
+npm test        # headless session tests
+```
 
-**Dichoptic Movie Viewing** — Video playback with per-eye contrast masks. Inspired by [AmblyoBye](https://github.com/alexmuraru27/AmblyoBye).
-
-**Gabor Patch Perceptual Learning** — Contrast sensitivity training with adaptive staircase difficulty.
-
-**Random Dot Stereograms** — Stereopsis recovery training with binocular disparity patterns.
-
-**Suppression Check** — Worth 4-dot analog for detecting binocular suppression.
+Open the dev URL with `?preview` to run exercises on a desktop browser: both eyes render side by side, arrow keys/Space/A/B/Esc stand in for the controllers. See [CLAUDE.md](CLAUDE.md) for architecture and how to add an exercise.
 
 ## Architecture
 
 ```
 src/
-├── core/
-│   ├── xr-session.ts        # WebXR session lifecycle
-│   ├── per-eye-renderer.ts  # Per-eye rendering (training vs. non-training)
-│   ├── contrast-engine.ts   # Dichoptic contrast balancing
-│   ├── input-manager.ts     # Controller/hand input
-│   └── settings-store.ts    # IndexedDB persistence
-├── exercises/
-│   ├── base-exercise.ts     # Abstract exercise class
-│   └── monocular-reading/   # Monocular reading exercise
-├── ui/
-│   ├── launcher.ts          # 2D exercise picker and settings
-│   ├── vr-hud.ts            # In-VR status display
-│   └── session-summary.ts   # Post-session stats
-├── utils/
-│   ├── text-renderer.ts     # Canvas text → WebGL texture
-│   ├── texture-cache.ts     # LRU texture cache
-│   └── analytics.ts         # Local session tracking
-└── main.ts
+├── core/        # XR session, per-eye renderer, input, contrast, session host, settings
+├── exercises/   # registry + one folder per exercise (exercise class + definition)
+├── ui/          # 2D launcher, VR HUD, text panels, session summary
+├── dev/         # desktop preview
+└── utils/       # text rendering, EPUB loading, caches, formatting
+tests/           # headless session tests
 ```
 
 ### Key Design Decisions
@@ -109,10 +101,9 @@ Exercises are based on published vision therapy research:
 
 Contributions welcome. Priority areas:
 
-1. Dichoptic Tetris implementation
-2. Gabor patch generator and staircase algorithm
-3. Anaglyph (red/blue) fallback for desktop
-4. Testing on various headsets
+1. Gabor patch generator and staircase algorithm
+2. Anaglyph (red/blue) fallback for desktop
+3. Testing on various headsets
 
 ## License
 

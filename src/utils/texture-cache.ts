@@ -59,6 +59,10 @@ export class TextureCache {
     this.accessOrder.length = 0;
   }
 
+  dispose(): void {
+    this.clear();
+  }
+
   get size(): number {
     return this.cache.size;
   }

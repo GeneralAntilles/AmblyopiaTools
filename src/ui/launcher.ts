@@ -7,97 +7,9 @@
 
 import type { SettingsStore, UserSettings } from '../core/settings-store';
 import { loadEpub, type LoadedBook, type BookChapter } from '../utils/epub-loader';
-
-export interface ExerciseDefinition {
-  id: string;
-  name: string;
-  description: string;
-  type: 'monocular' | 'dichoptic' | 'binocular' | 'diagnostic';
-  available: boolean;
-}
-
-const EXERCISES: ExerciseDefinition[] = [
-  {
-    id: 'monocular-reading',
-    name: 'Monocular Reading',
-    description:
-      'Read text with your training eye only. The non-training eye sees a blank screen, fixation cross, or pattern.',
-    type: 'monocular',
-    available: true,
-  },
-  {
-    id: 'depth-scaffolding',
-    name: 'Depth Scaffolding',
-    description:
-      'Stereopsis trainer with progressive cue removal. Starts with size + brightness cues alongside stereo, strips them away. VR-unique — impossible on flat screens.',
-    type: 'binocular',
-    available: true,
-  },
-  {
-    id: 'dichoptic-tetris',
-    name: 'Dichoptic Tetris',
-    description:
-      'Play Tetris with falling pieces visible to the amblyopic eye and placed pieces to the dominant eye. Forces binocular cooperation.',
-    type: 'dichoptic',
-    available: false,
-  },
-  {
-    id: 'dichoptic-2048',
-    name: 'Dichoptic 2048',
-    description:
-      'Play 2048 with the board visible to both eyes but tiles only to your training eye. Forces binocular cooperation during gameplay.',
-    type: 'dichoptic',
-    available: true,
-  },
-  {
-    id: 'dichoptic-movie',
-    name: 'Dichoptic Movie Viewing',
-    description:
-      'Watch video with per-eye contrast masks. Passive dichoptic training during media consumption.',
-    type: 'dichoptic',
-    available: false,
-  },
-  {
-    id: 'gabor-patches',
-    name: 'Gabor Patch Training',
-    description:
-      'Identify Gabor patch orientations to improve contrast sensitivity. Adaptive difficulty.',
-    type: 'monocular',
-    available: false,
-  },
-  {
-    id: 'stereogram-trainer',
-    name: 'Random Dot Stereograms',
-    description:
-      'Identify hidden shapes visible only through binocular fusion. Trains stereopsis recovery.',
-    type: 'binocular',
-    available: false,
-  },
-  {
-    id: 'suppression-check',
-    name: 'Suppression Check',
-    description:
-      'Worth 4-dot test at varying distances. Detects binocular suppression with per-distance breakdown. 12 trials (~2 min).',
-    type: 'diagnostic',
-    available: true,
-  },
-  {
-    id: 'brock-string',
-    name: 'Brock String',
-    description:
-      'Virtual Brock string for convergence training. Focus on beads at different depths to see the X pattern. Trains eye teaming.',
-    type: 'binocular',
-    available: true,
-  },
-  {
-    id: 'vergence-training',
-    name: 'Vergence Training',
-    description:
-      'Train convergence and divergence with binocular disparity rings. VR equivalent of eccentric circles and vectographs.',
-    type: 'binocular',
-    available: true,
-  },
-];
+import { EXERCISES, getExercise } from '../exercises/registry';
+import type { LaunchOptions } from '../exercises/definition';
+import { escapeHtml, formatDate, formatDuration } from '../utils/format';
 
 const TYPE_LABELS: Record<string, string> = {
   monocular: 'Monocular',
@@ -125,7 +37,7 @@ export class Launcher {
 
   async init(): Promise<void> {
     const settings = await this.store.getSettings();
-    this.selectedExercise = settings.lastExercise || 'monocular-reading';
+    this.selectedExercise = getExercise(settings.lastExercise) ? settings.lastExercise : EXERCISES[0].id;
 
     // Check for first-time user
     if (!settings.setupCompleted) {
@@ -199,16 +111,6 @@ export class Launcher {
       day.setDate(day.getDate() - 1);
     }
 
-    const exerciseNames: Record<string, string> = {
-      'monocular-reading': 'Monocular Reading',
-      'dichoptic-reading': 'Dichoptic Reading',
-      'suppression-check': 'Suppression Check',
-      'brock-string': 'Brock String',
-      'vergence-training': 'Vergence Training',
-      'depth-scaffolding': 'Depth Scaffolding',
-      'dichoptic-2048': 'Dichoptic 2048',
-    };
-
     const statsHtml = `
       <div class="history-stats">
         <div class="history-stat">
@@ -227,10 +129,12 @@ export class Launcher {
     `;
 
     const rowsHtml = records.map((r) => {
-      const name = exerciseNames[r.exercise] ?? r.exercise;
+      const def = getExercise(r.exercise);
+      const stats = r.stats ?? {};
+      const name = def?.sessionName?.(stats) ?? def?.name ?? r.exercise;
       const dur = formatDuration(r.durationMs);
       const date = formatDate(r.startTime);
-      const details = formatDetails(r);
+      const details = def?.historyDetail(stats).join(', ') ?? '';
 
       return `
         <div class="history-row">
@@ -250,24 +154,19 @@ export class Launcher {
 
     container.innerHTML = EXERCISES.map(
       (ex) => `
-      <div class="exercise-card ${ex.id === this.selectedExercise ? 'selected' : ''} ${!ex.available ? 'disabled' : ''}"
-           data-exercise="${ex.id}"
-           ${!ex.available ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-        <h3>${ex.name}${!ex.available ? ' (Coming Soon)' : ''}</h3>
-        <p>${ex.description}</p>
-        <span class="tag ${ex.type}">${TYPE_LABELS[ex.type] ?? ex.type}</span>
+      <div class="exercise-card ${ex.id === this.selectedExercise ? 'selected' : ''}" data-exercise="${ex.id}">
+        <h3>${escapeHtml(ex.name)}</h3>
+        <p>${escapeHtml(ex.description)}</p>
+        <span class="tag ${ex.tag}">${TYPE_LABELS[ex.tag] ?? ex.tag}</span>
       </div>
     `
     ).join('');
 
     container.querySelectorAll('.exercise-card').forEach((card) => {
       card.addEventListener('click', () => {
-        const id = (card as HTMLElement).dataset.exercise;
-        const exercise = EXERCISES.find((e) => e.id === id);
-        if (!exercise?.available) return;
-
-        this.selectedExercise = id!;
-        this.store.saveSetting('lastExercise', id!);
+        const id = (card as HTMLElement).dataset.exercise!;
+        this.selectedExercise = id;
+        this.store.saveSetting('lastExercise', id);
 
         container.querySelectorAll('.exercise-card').forEach((c) => c.classList.remove('selected'));
         card.classList.add('selected');
@@ -279,10 +178,12 @@ export class Launcher {
     this.updateSettingsVisibility();
   }
 
+  /** Show only the selected exercise's settings section. */
   private updateSettingsVisibility(): void {
-    const readingSection = document.getElementById('reading-settings-section');
-    if (readingSection) {
-      readingSection.classList.toggle('hidden', this.selectedExercise !== 'monocular-reading');
+    const selected = getExercise(this.selectedExercise)?.settingsSection;
+    for (const ex of EXERCISES) {
+      if (!ex.settingsSection) continue;
+      document.getElementById(ex.settingsSection)?.classList.toggle('hidden', ex.settingsSection !== selected);
     }
   }
 
@@ -486,18 +387,20 @@ export class Launcher {
     return this.selectedExercise;
   }
 
-  getReadingText(): string {
+  /** Inputs for the selected exercise that come from the page rather than settings. */
+  getLaunchOptions(): LaunchOptions {
     const textarea = document.getElementById('reading-text') as HTMLTextAreaElement | null;
-    return textarea?.value ?? '';
-  }
+    const chapters = this.loadedBook && this.loadedBook.chapters.length > 1
+      ? this.loadedBook.chapters.map((ch) => ({ title: ch.title, text: ch.text }))
+      : undefined;
 
-  /** Get the full loaded book (for chapter navigation in VR) */
-  getLoadedBook(): LoadedBook | null {
-    return this.loadedBook;
-  }
-
-  getSelectedChapterIndex(): number {
-    return this.selectedChapterIndex;
+    return {
+      reading: {
+        text: textarea?.value ?? '',
+        chapters,
+        startChapter: chapters ? this.selectedChapterIndex : undefined,
+      },
+    };
   }
 
   private bindTherapySettings(settings: UserSettings): void {
@@ -612,72 +515,6 @@ export class Launcher {
     const nextIndex = (settings.lastCompletedExerciseIndex + 1) % order.length;
     const exerciseId = order[nextIndex];
 
-    // Only recommend available exercises
-    const ex = EXERCISES.find((e) => e.id === exerciseId);
-    if (!ex?.available) return null;
-
-    return exerciseId;
+    return getExercise(exerciseId) ? exerciseId : null;
   }
-
-  getCurrentSettings(): Record<string, unknown> {
-    return {
-      fontSize: parseFloat((document.getElementById('font-size') as HTMLInputElement)?.value ?? '48'),
-      lineHeight: parseFloat((document.getElementById('line-height') as HTMLInputElement)?.value ?? '1.6'),
-      fontFamily: (document.getElementById('font-family') as HTMLSelectElement)?.value ?? 'sans-serif',
-      nonTrainingDisplay: (document.getElementById('non-training-display') as HTMLSelectElement)?.value ?? 'blank',
-      trainingEye: (document.getElementById('training-eye') as HTMLSelectElement)?.value ?? 'right',
-    };
-  }
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  if (m > 0) return `${m}m ${s % 60}s`;
-  return `${s}s`;
-}
-
-function formatDate(timestamp: number): string {
-  const d = new Date(timestamp);
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = d.toDateString() === yesterday.toDateString();
-
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (isToday) return `Today ${time}`;
-  if (isYesterday) return `Yesterday ${time}`;
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` ${time}`;
-}
-
-function formatDetails(record: import('../core/settings-store').SessionRecord): string {
-  const stats = record.stats;
-  if (!stats) return '';
-
-  const parts: string[] = [];
-
-  if (typeof stats.pagesRead === 'number' && stats.pagesRead > 0) {
-    parts.push(`${stats.pagesRead} pages`);
-  }
-  if (typeof stats.fusionRate === 'number') {
-    parts.push(`${stats.fusionRate}% fusion`);
-  }
-  if (typeof stats.fellowEyeContrast === 'number' && stats.fellowEyeContrast > 0) {
-    parts.push(`${stats.fellowEyeContrast}% contrast`);
-  }
-  if (typeof stats.convergenceFusionRate === 'number') {
-    parts.push(`conv ${stats.convergenceFusionRate}%`);
-  }
-  if (typeof stats.score === 'number' && typeof stats.highestTile === 'number') {
-    parts.push(`${stats.score} pts, best ${stats.highestTile}`);
-  }
-
-  return parts.join(', ');
 }

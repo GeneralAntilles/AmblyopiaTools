@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import basicSsl from '@vitejs/plugin-basic-ssl';
@@ -20,5 +21,10 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist',
+  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['vitest-canvas-mock', 'fake-indexeddb/auto'],
+    include: ['tests/**/*.test.ts'],
   },
 });

@@ -4,10 +4,10 @@
  */
 
 import * as THREE from 'three';
-import type { PerEyeRenderer } from '../core/per-eye-renderer';
+import type { EyeRenderer } from '../core/per-eye-renderer';
 import { COLORS } from './vr-constants';
 
-export function createEnvironmentSphere(renderer: PerEyeRenderer): {
+export function createEnvironmentSphere(renderer: EyeRenderer): {
   mesh: THREE.Mesh;
   material: THREE.MeshBasicMaterial;
 } {

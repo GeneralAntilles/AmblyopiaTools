@@ -28,12 +28,9 @@
  */
 
 import * as THREE from 'three';
-import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
-import type { PerEyeRenderer } from '../../core/per-eye-renderer';
-import type { InputManager } from '../../core/input-manager';
-import { TextRenderer } from '../../utils/text-renderer';
-import { createEnvironmentSphere } from '../../ui/vr-environment';
-import { COLORS, FONTS, PANELS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
+import { BaseExercise, type ExerciseStats } from '../base-exercise';
+import { TextPanel, instructionText, feedbackText } from '../../ui/text-panel';
+import { COLORS, PANELS, TIMING } from '../../ui/vr-constants';
 
 type SuppressionResult = 'fusion' | 'training-suppressed' | 'fellow-suppressed' | 'diplopia';
 
@@ -78,303 +75,103 @@ const FIXATION_COLOR = 0x9688a0;
 const CROSSHAIR_COLOR = 0xdbb870;
 
 export class SuppressionCheckExercise extends BaseExercise {
-  readonly name = 'Suppression Check';
-  readonly description = 'Worth 4-dot test to detect binocular suppression.';
-  readonly type = 'diagnostic' as const;
-
-  private renderer: PerEyeRenderer | null = null;
-  private input: InputManager | null = null;
-  private unsubInput: (() => void) | null = null;
-  private textRenderer: TextRenderer;
-
-  // Scene objects
-  private redDot: THREE.Mesh | null = null;
-  private redMaterial: THREE.MeshBasicMaterial | null = null;
-  private greenDot1: THREE.Mesh | null = null;
-  private greenMat1: THREE.MeshBasicMaterial | null = null;
-  private greenDot2: THREE.Mesh | null = null;
-  private greenMat2: THREE.MeshBasicMaterial | null = null;
-  private whiteDot: THREE.Mesh | null = null;
-  private whiteMaterial: THREE.MeshBasicMaterial | null = null;
-  private fixationGroup: THREE.Group | null = null;
-  private fixationMaterial: THREE.MeshBasicMaterial | null = null;
-  private crosshairGroup: THREE.Group | null = null;
-  private crosshairMaterial: THREE.MeshBasicMaterial | null = null;
-  private envSphereMesh: THREE.Mesh | null = null;
-  private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private instructionMesh: THREE.Mesh | null = null;
-  private instructionMaterial: THREE.MeshBasicMaterial | null = null;
-  private feedbackMesh: THREE.Mesh | null = null;
-  private feedbackMaterial: THREE.MeshBasicMaterial | null = null;
-  private scatterMesh: THREE.Mesh | null = null;
-  private scatterMaterial: THREE.MeshBasicMaterial | null = null;
+  // Dots: red → training eye, greens → fellow eye, white → both
+  private redDot!: THREE.Mesh;
+  private greenDot1!: THREE.Mesh;
+  private greenDot2!: THREE.Mesh;
+  private whiteDot!: THREE.Mesh;
+  private dotMaterials: THREE.MeshBasicMaterial[] = [];
+  private fixationGroup!: THREE.Group;
+  private crosshairGroup!: THREE.Group;
+  private crosshairMaterial!: THREE.MeshBasicMaterial;
+  private instructions!: TextPanel;
+  private feedback!: TextPanel;
+  private scatter!: TextPanel;
 
   // Trial state
   private results: TrialResult[] = [];
   private trialConditions: TrialCondition[] = [];
-  private currentTrial: number = 0;
-  private trialStartTime: number = 0;
-  private awaitingResponse: boolean = false;
-  private showingFeedback: boolean = false;
-  private feedbackTimeout: number = 0;
-  private completed: boolean = false;
+  private currentTrial = 0;
+  private trialStartTime = 0;
+  private awaitingResponse = false;
 
-  // Transition state
-  private interTrialActive: boolean = false;
-  private interTrialEndTime: number = 0;
-  private fadingIn: boolean = false;
-  private fadeStartTime: number = 0;
+  // Dot fade-in
+  private fadingIn = false;
+  private fadeStartTime = 0;
 
   // Vergence offset measurement
-  private offsetPhase: boolean = false;
-  private crosshairOffsetX: number = 0;
-  private crosshairOffsetY: number = 0;
+  private offsetPhase = false;
+  private crosshairOffsetX = 0;
+  private crosshairOffsetY = 0;
   private pendingResult: TrialResult | null = null;
 
-  private exitCallback: (() => void) | null = null;
-
-  constructor() {
-    super();
-    this.textRenderer = new TextRenderer();
-  }
-
-  setExitCallback(cb: () => void): void {
-    this.exitCallback = cb;
-  }
-
-  async setup(config: ExerciseConfig): Promise<void> {
-    this.renderer = config.renderer;
-    this.input = config.input;
-    this.results = [];
-    this.currentTrial = 0;
-
+  protected setup(): void {
     this.trialConditions = this.generateTrialConditions();
 
-    this.createEnvironment();
+    this.addEnvironment();
     this.createDots();
     this.createFixationCross();
     this.createCrosshair();
 
-    // Instruction panel (both eyes)
-    const instructGeo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
-    this.instructionMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.instructionMesh = new THREE.Mesh(instructGeo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, DOT_Y - 0.4, PANELS.INSTRUCTION_Z);
-    this.renderer.addToBothEyes(this.instructionMesh);
+    this.instructions = this.panel(PANELS.INSTRUCTION_WIDTH);
+    this.instructions.position.set(0, DOT_Y - 0.4, PANELS.INSTRUCTION_Z);
 
-    // Feedback panel (both eyes)
-    const feedbackGeo = new THREE.PlaneGeometry(PANELS.FEEDBACK_WIDTH, PANELS.FEEDBACK_HEIGHT);
-    this.feedbackMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.feedbackMesh = new THREE.Mesh(feedbackGeo, this.feedbackMaterial);
-    this.feedbackMesh.position.set(0, DOT_Y + 0.35, -1.8);
-    this.feedbackMesh.visible = false;
-    this.renderer.addToBothEyes(this.feedbackMesh);
+    this.feedback = this.panel(PANELS.FEEDBACK_WIDTH * 1.75);
+    this.feedback.position.set(0, DOT_Y + 0.35, -1.8);
+    this.feedback.visible = false;
 
-    // Scatter plot panel (both eyes, shown during results)
-    const scatterGeo = new THREE.PlaneGeometry(0.8, 0.8);
-    this.scatterMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.scatterMesh = new THREE.Mesh(scatterGeo, this.scatterMaterial);
-    this.scatterMesh.visible = false;
-    this.renderer.addToBothEyes(this.scatterMesh);
+    // Scatter plot (shown with results)
+    this.scatter = this.panel(0.8);
+    this.scatter.visible = false;
 
     this.renderInstructions();
 
-    // Input
-    this.unsubInput = this.input.onAction((action) => {
-      if (this.completed) {
-        if (action === 'exit') this.exitCallback?.();
-        return;
-      }
-
-      // During offset measurement, only trigger and exit work
+    this.onInput((action) => {
+      // During offset measurement, only trigger works
       if (this.offsetPhase) {
-        if (action === 'select') {
-          this.confirmOffset();
-        } else if (action === 'exit') {
-          this.exitCallback?.();
-        }
+        if (action === 'select') this.confirmOffset();
         return;
       }
 
-      if (this.awaitingResponse) {
-        switch (action) {
-          case 'select':
-            this.recordResponse('fusion');
-            break;
-          case 'button-a':
-            this.recordResponse('fellow-suppressed');
-            break;
-          case 'button-b':
-            this.recordResponse('training-suppressed');
-            break;
-          case 'chapter-next':
-            this.recordResponse('diplopia');
-            break;
-        }
-      }
-
-      if (action === 'exit') {
-        this.exitCallback?.();
+      if (!this.awaitingResponse) return;
+      switch (action) {
+        case 'select':
+          this.recordResponse('fusion');
+          break;
+        case 'button-a':
+          this.recordResponse('fellow-suppressed');
+          break;
+        case 'button-b':
+          this.recordResponse('training-suppressed');
+          break;
+        case 'chapter-next':
+          this.recordResponse('diplopia');
+          break;
       }
     });
 
     this.beginInterTrial();
-    this.markStarted();
+    this.ctx.hud.setStatus('Suppression Check — grip exit');
   }
 
-  update(dt: number): void {
-    const now = Date.now();
+  protected onUpdate(): void {
+    const now = this.now();
 
     // Crosshair positioning during offset phase via controller ray
-    if (this.offsetPhase && this.crosshairGroup && this.renderer && this.redDot) {
-      // Get world position of the red dot (defines the plane we intersect)
-      const redDotWorld = new THREE.Vector3();
-      this.redDot.getWorldPosition(redDotWorld);
-
-      // Define a plane at the red dot's depth, facing the user (normal = +Z)
-      const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -redDotWorld.z);
-
-      // Try each controller — use the first one that's tracked
-      let intersection: THREE.Vector3 | null = null;
-      for (let i = 0; i < 2; i++) {
-        const ray = this.renderer.getControllerRay(i);
-        if (!ray) continue;
-
-        const threeRay = new THREE.Ray(ray.origin, ray.direction);
-        const target = new THREE.Vector3();
-        const hit = threeRay.intersectPlane(plane, target);
-        if (hit) {
-          intersection = target;
-          break;
-        }
-      }
-
-      if (intersection) {
-        // Convert intersection from world space to content-local space
-        const localHit = this.renderer.worldToContentLocal(intersection);
-
-        // Compute offset from red dot position (both in content-local space)
-        this.crosshairOffsetX = localHit.x - this.redDot.position.x;
-        this.crosshairOffsetY = localHit.y - this.redDot.position.y;
-
-        // Clamp to reasonable range
-        const dist = Math.abs(this.trialConditions[this.currentTrial]?.distance ?? -1.8);
-        const maxOffset = 0.3 * (dist / REF_DISTANCE);
-        this.crosshairOffsetX = THREE.MathUtils.clamp(this.crosshairOffsetX, -maxOffset, maxOffset);
-        this.crosshairOffsetY = THREE.MathUtils.clamp(this.crosshairOffsetY, -maxOffset, maxOffset);
-
-        this.crosshairGroup.position.set(
-          this.redDot.position.x + this.crosshairOffsetX,
-          this.redDot.position.y + this.crosshairOffsetY,
-          this.redDot.position.z,
-        );
-      }
-
-      // Pulse crosshair gently
-      if (this.crosshairMaterial) {
-        this.crosshairMaterial.opacity = 0.6 + 0.3 * Math.sin(now * 0.004);
-      }
-    }
-
-    // Feedback timeout -> inter-trial or results
-    if (this.showingFeedback && now > this.feedbackTimeout) {
-      this.showingFeedback = false;
-      this.feedbackMesh!.visible = false;
-
-      if (this.currentTrial >= TOTAL_TRIALS) {
-        this.showResults();
-      } else {
-        this.beginInterTrial();
-      }
-    }
-
-    // Inter-trial fixation -> start trial with fade-in
-    if (this.interTrialActive && now > this.interTrialEndTime) {
-      this.interTrialActive = false;
-      if (this.fixationGroup) this.fixationGroup.visible = false;
-      this.startTrial();
+    if (this.offsetPhase) {
+      this.trackCrosshair();
+      this.crosshairMaterial.opacity = 0.6 + 0.3 * Math.sin(now * 0.004);
     }
 
     // Dot fade-in animation
     if (this.fadingIn) {
-      const elapsed = now - this.fadeStartTime;
-      const t = Math.min(1, elapsed / TIMING.FADE_IN_MS);
-      const alpha = 1 - (1 - t) * (1 - t); // ease-out
-
-      if (this.redMaterial) this.redMaterial.opacity = alpha;
-      if (this.greenMat1) this.greenMat1.opacity = alpha;
-      if (this.greenMat2) this.greenMat2.opacity = alpha;
-      if (this.whiteMaterial) this.whiteMaterial.opacity = alpha;
-
-      if (t >= 1) {
-        this.fadingIn = false;
-      }
+      const t = Math.min(1, (now - this.fadeStartTime) / TIMING.FADE_IN_MS);
+      this.setDotsOpacity(1 - (1 - t) * (1 - t)); // ease-out
+      if (t >= 1) this.fadingIn = false;
     }
   }
 
-  teardown(): void {
-    this.markStopped();
-    this.unsubInput?.();
-
-    if (this.renderer) {
-      if (this.redDot) this.renderer.removeFromScene(this.redDot);
-      if (this.greenDot1) this.renderer.removeFromScene(this.greenDot1);
-      if (this.greenDot2) this.renderer.removeFromScene(this.greenDot2);
-      if (this.whiteDot) this.renderer.removeFromScene(this.whiteDot);
-      if (this.fixationGroup) this.renderer.removeFromScene(this.fixationGroup);
-      if (this.crosshairGroup) this.renderer.removeFromScene(this.crosshairGroup);
-      if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
-      if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
-      if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
-      if (this.scatterMesh) this.renderer.removeFromScene(this.scatterMesh);
-    }
-
-    this.redDot?.geometry.dispose();
-    this.redMaterial?.dispose();
-    this.greenDot1?.geometry.dispose();
-    this.greenMat1?.dispose();
-    this.greenDot2?.geometry.dispose();
-    this.greenMat2?.dispose();
-    this.whiteDot?.geometry.dispose();
-    this.whiteMaterial?.dispose();
-    this.fixationGroup?.traverse((child) => {
-      if (child instanceof THREE.Mesh) child.geometry.dispose();
-    });
-    this.fixationMaterial?.dispose();
-    this.crosshairGroup?.traverse((child) => {
-      if (child instanceof THREE.Mesh) child.geometry.dispose();
-    });
-    this.crosshairMaterial?.dispose();
-    this.envSphereMesh?.geometry.dispose();
-    this.envMaterial?.map?.dispose();
-    this.envMaterial?.dispose();
-    this.instructionMesh?.geometry.dispose();
-    this.instructionMaterial?.map?.dispose();
-    this.instructionMaterial?.dispose();
-    this.feedbackMesh?.geometry.dispose();
-    this.feedbackMaterial?.map?.dispose();
-    this.feedbackMaterial?.dispose();
-    this.scatterMesh?.geometry.dispose();
-    this.scatterMaterial?.map?.dispose();
-    this.scatterMaterial?.dispose();
-
-    this.renderer = null;
-    this.input = null;
-  }
-
-  getSessionStats(): SessionStats {
+  getStats(): ExerciseStats {
     const counts = { fusion: 0, 'training-suppressed': 0, 'fellow-suppressed': 0, diplopia: 0 };
     const distanceCounts: Record<string, { total: number; fusion: number }> = {};
     let totalReactionTime = 0;
@@ -397,22 +194,15 @@ export class SuppressionCheckExercise extends BaseExercise {
     }
 
     // Vergence offset stats
-    const offsets = this.results
-      .filter((r) => r.vergenceOffset)
-      .map((r) => r.vergenceOffset!);
+    const offsets = this.results.filter((r) => r.vergenceOffset).map((r) => r.vergenceOffset!);
 
     let avgOffsetMm = 0;
     if (offsets.length > 0) {
-      const totalMag = offsets.reduce(
-        (sum, o) => sum + Math.sqrt(o.x * o.x + o.y * o.y),
-        0,
-      );
+      const totalMag = offsets.reduce((sum, o) => sum + Math.sqrt(o.x * o.x + o.y * o.y), 0);
       avgOffsetMm = Math.round((totalMag / offsets.length) * 1000);
     }
 
     return {
-      exercise: 'suppression-check',
-      durationMs: this.getElapsedMs(),
       trials: this.results.length,
       fusionRate: Math.round((counts.fusion / total) * 100),
       trainingSuppressionRate: Math.round((counts['training-suppressed'] / total) * 100),
@@ -460,80 +250,45 @@ export class SuppressionCheckExercise extends BaseExercise {
 
   // --- Scene Setup ---
 
-  private createEnvironment(): void {
-    if (!this.renderer) return;
-
-    const { mesh, material } = createEnvironmentSphere(this.renderer);
-    this.envSphereMesh = mesh;
-    this.envMaterial = material;
-  }
-
   private createDots(): void {
-    if (!this.renderer) return;
-
     const dotGeo = new THREE.CircleGeometry(DOT_RADIUS_BASE, 32);
+    const makeDot = (color: number, eye: 'training' | 'fellow' | 'both') => {
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0 });
+      this.dotMaterials.push(mat);
+      return this.add(new THREE.Mesh(dotGeo.clone(), mat), eye);
+    };
 
-    this.redMaterial = new THREE.MeshBasicMaterial({
-      color: RED, transparent: true, opacity: 0,
-    });
-    this.redDot = new THREE.Mesh(dotGeo.clone(), this.redMaterial);
-    this.renderer.addToTrainingEye(this.redDot);
-
-    this.greenMat1 = new THREE.MeshBasicMaterial({
-      color: GREEN, transparent: true, opacity: 0,
-    });
-    this.greenDot1 = new THREE.Mesh(dotGeo.clone(), this.greenMat1);
-    this.renderer.addToNonTrainingEye(this.greenDot1);
-
-    this.greenMat2 = new THREE.MeshBasicMaterial({
-      color: GREEN, transparent: true, opacity: 0,
-    });
-    this.greenDot2 = new THREE.Mesh(dotGeo.clone(), this.greenMat2);
-    this.renderer.addToNonTrainingEye(this.greenDot2);
-
-    this.whiteMaterial = new THREE.MeshBasicMaterial({
-      color: WHITE, transparent: true, opacity: 0,
-    });
-    this.whiteDot = new THREE.Mesh(dotGeo.clone(), this.whiteMaterial);
-    this.renderer.addToBothEyes(this.whiteDot);
+    this.redDot = makeDot(RED, 'training');
+    this.greenDot1 = makeDot(GREEN, 'fellow');
+    this.greenDot2 = makeDot(GREEN, 'fellow');
+    this.whiteDot = makeDot(WHITE, 'both');
+    dotGeo.dispose();
   }
 
   private createFixationCross(): void {
-    if (!this.renderer) return;
-
+    const mat = new THREE.MeshBasicMaterial({ color: FIXATION_COLOR, transparent: true, opacity: 0.6 });
     const group = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({
-      color: FIXATION_COLOR, transparent: true, opacity: 0.6,
-    });
-    this.fixationMaterial = mat;
-
-    const hBar = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.005), mat);
-    const vBar = new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.04), mat);
-    group.add(hBar, vBar);
+    group.add(
+      new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.005), mat),
+      new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.04), mat),
+    );
     group.position.set(0, DOT_Y, -1.8);
     group.visible = false;
-
-    this.fixationGroup = group;
-    this.renderer.addToBothEyes(group);
+    this.fixationGroup = this.add(group);
   }
 
   private createCrosshair(): void {
-    if (!this.renderer) return;
-
-    const group = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({
+    this.crosshairMaterial = new THREE.MeshBasicMaterial({
       color: CROSSHAIR_COLOR, transparent: true, opacity: 0.8, depthWrite: false,
     });
-    this.crosshairMaterial = mat;
-
     // "+" shape — slightly larger than the dots
-    const hBar = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.005), mat);
-    const vBar = new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.08), mat);
-    group.add(hBar, vBar);
+    const group = new THREE.Group();
+    group.add(
+      new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.005), this.crosshairMaterial),
+      new THREE.Mesh(new THREE.PlaneGeometry(0.005, 0.08), this.crosshairMaterial),
+    );
     group.visible = false;
-
-    this.crosshairGroup = group;
-    this.renderer.addToNonTrainingEye(group);
+    this.crosshairGroup = this.add(group, 'fellow');
   }
 
   // --- Trial Logic ---
@@ -542,25 +297,23 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.setDotsOpacity(0);
 
     const condition = this.trialConditions[this.currentTrial];
-    if (this.fixationGroup) {
-      this.fixationGroup.position.z = condition.distance;
-      this.fixationGroup.visible = true;
-    }
-
-    this.interTrialActive = true;
-    this.interTrialEndTime = Date.now() + TIMING.INTER_TRIAL_MS;
+    this.fixationGroup.position.z = condition.distance;
+    this.fixationGroup.visible = true;
     this.renderInstructions();
+
+    this.after(TIMING.INTER_TRIAL_MS, () => {
+      this.fixationGroup.visible = false;
+      this.startTrial();
+    });
   }
 
   private startTrial(): void {
-    const condition = this.trialConditions[this.currentTrial];
-
-    this.positionDots(condition);
+    this.positionDots(this.trialConditions[this.currentTrial]);
 
     this.fadingIn = true;
-    this.fadeStartTime = Date.now();
+    this.fadeStartTime = this.now();
 
-    this.trialStartTime = Date.now();
+    this.trialStartTime = this.now();
     this.awaitingResponse = true;
     this.renderInstructions();
   }
@@ -571,54 +324,32 @@ export class SuppressionCheckExercise extends BaseExercise {
     const spread = DOT_SPREAD_BASE * scale;
     const rot = condition.rotation;
 
-    const positions = [
-      { dx: Math.sin(rot) * spread, dy: Math.cos(rot) * spread },
-      { dx: Math.sin(rot - Math.PI / 2) * spread, dy: Math.cos(rot - Math.PI / 2) * spread },
-      { dx: Math.sin(rot + Math.PI / 2) * spread, dy: Math.cos(rot + Math.PI / 2) * spread },
-      { dx: Math.sin(rot + Math.PI) * spread, dy: Math.cos(rot + Math.PI) * spread },
-    ];
+    const dots = [this.redDot, this.greenDot1, this.greenDot2, this.whiteDot];
+    const angles = [rot, rot - Math.PI / 2, rot + Math.PI / 2, rot + Math.PI];
 
-    const dotScale = scale;
-
-    if (this.redDot) {
-      this.redDot.position.set(positions[0].dx, DOT_Y + positions[0].dy, z);
-      this.redDot.scale.set(dotScale, dotScale, 1);
-    }
-    if (this.greenDot1) {
-      this.greenDot1.position.set(positions[1].dx, DOT_Y + positions[1].dy, z);
-      this.greenDot1.scale.set(dotScale, dotScale, 1);
-    }
-    if (this.greenDot2) {
-      this.greenDot2.position.set(positions[2].dx, DOT_Y + positions[2].dy, z);
-      this.greenDot2.scale.set(dotScale, dotScale, 1);
-    }
-    if (this.whiteDot) {
-      this.whiteDot.position.set(positions[3].dx, DOT_Y + positions[3].dy, z);
-      this.whiteDot.scale.set(dotScale, dotScale, 1);
+    for (let i = 0; i < 4; i++) {
+      dots[i].position.set(Math.sin(angles[i]) * spread, DOT_Y + Math.cos(angles[i]) * spread, z);
+      dots[i].scale.set(scale, scale, 1);
     }
   }
 
   private setDotsOpacity(opacity: number): void {
-    if (this.redMaterial) this.redMaterial.opacity = opacity;
-    if (this.greenMat1) this.greenMat1.opacity = opacity;
-    if (this.greenMat2) this.greenMat2.opacity = opacity;
-    if (this.whiteMaterial) this.whiteMaterial.opacity = opacity;
+    for (const m of this.dotMaterials) m.opacity = opacity;
   }
 
   private recordResponse(response: SuppressionResult): void {
-    if (!this.awaitingResponse) return;
     this.awaitingResponse = false;
 
-    const reactionTimeMs = Date.now() - this.trialStartTime;
+    const reactionTimeMs = this.now() - this.trialStartTime;
     const condition = this.trialConditions[this.currentTrial];
 
     if (response === 'fusion') {
       // Enter offset measurement phase — dots stay visible
-      this.input?.haptic('confirm');
+      this.ctx.input.haptic('confirm');
       this.pendingResult = { response, reactionTimeMs, condition };
       this.enterOffsetPhase(condition);
     } else {
-      this.input?.haptic('light');
+      this.ctx.input.haptic('light');
       this.results.push({ response, reactionTimeMs, condition });
       this.currentTrial++;
       this.setDotsOpacity(0);
@@ -634,20 +365,57 @@ export class SuppressionCheckExercise extends BaseExercise {
     this.crosshairOffsetY = 0;
 
     // Position crosshair at red dot's location (zero offset = perfect alignment)
-    if (this.crosshairGroup && this.redDot) {
-      this.crosshairGroup.position.copy(this.redDot.position);
-      this.crosshairGroup.visible = true;
-      const scale = Math.abs(condition.distance) / REF_DISTANCE;
-      this.crosshairGroup.scale.set(scale, scale, 1);
-    }
+    this.crosshairGroup.position.copy(this.redDot.position);
+    this.crosshairGroup.visible = true;
+    const scale = Math.abs(condition.distance) / REF_DISTANCE;
+    this.crosshairGroup.scale.set(scale, scale, 1);
 
-    this.renderOffsetInstructions();
+    this.instructions.setText(instructionText(
+      ['Point controller where you see the red dot', 'Aim to move  •  Trigger to confirm'],
+      COLORS.TEXT_SPECIAL,
+    ));
+  }
+
+  /** Move the crosshair to where a controller ray hits the red dot's depth plane. */
+  private trackCrosshair(): void {
+    const renderer = this.ctx.renderer;
+    const redDotWorld = new THREE.Vector3();
+    this.redDot.getWorldPosition(redDotWorld);
+
+    // Plane at the red dot's depth, facing the user (normal = +Z)
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -redDotWorld.z);
+
+    // Use the first tracked controller whose ray hits the plane
+    let intersection: THREE.Vector3 | null = null;
+    for (let i = 0; i < 2; i++) {
+      const ray = renderer.getControllerRay(i);
+      if (!ray) continue;
+      const target = new THREE.Vector3();
+      if (new THREE.Ray(ray.origin, ray.direction).intersectPlane(plane, target)) {
+        intersection = target;
+        break;
+      }
+    }
+    if (!intersection) return;
+
+    // Offset from the red dot, both in content-local space
+    const localHit = renderer.worldToContentLocal(intersection);
+    const dist = Math.abs(this.trialConditions[this.currentTrial]?.distance ?? -1.8);
+    const maxOffset = 0.3 * (dist / REF_DISTANCE);
+    this.crosshairOffsetX = THREE.MathUtils.clamp(localHit.x - this.redDot.position.x, -maxOffset, maxOffset);
+    this.crosshairOffsetY = THREE.MathUtils.clamp(localHit.y - this.redDot.position.y, -maxOffset, maxOffset);
+
+    this.crosshairGroup.position.set(
+      this.redDot.position.x + this.crosshairOffsetX,
+      this.redDot.position.y + this.crosshairOffsetY,
+      this.redDot.position.z,
+    );
   }
 
   private confirmOffset(): void {
-    this.input?.haptic('medium');
+    this.ctx.input.haptic('medium');
     this.offsetPhase = false;
-    if (this.crosshairGroup) this.crosshairGroup.visible = false;
+    this.crosshairGroup.visible = false;
 
     const result = this.pendingResult!;
     result.vergenceOffset = { x: this.crosshairOffsetX, y: this.crosshairOffsetY };
@@ -657,40 +425,13 @@ export class SuppressionCheckExercise extends BaseExercise {
 
     this.setDotsOpacity(0);
 
-    const offsetMm = Math.round(
-      Math.sqrt(
-        this.crosshairOffsetX * this.crosshairOffsetX +
-        this.crosshairOffsetY * this.crosshairOffsetY,
-      ) * 1000,
-    );
+    const offsetMm = Math.round(Math.hypot(this.crosshairOffsetX, this.crosshairOffsetY) * 1000);
     this.showFeedback(result.response, result.condition, offsetMm);
-  }
-
-  private renderOffsetInstructions(): void {
-    const tex = this.textRenderer.renderToTexture({
-      text: 'Point controller where you see the red dot\nAim to move  •  Trigger to confirm',
-      width: 1024,
-      height: 140,
-      fontSize: FONTS.INSTRUCTION,
-      lineHeight: 1.6,
-      color: COLORS.TEXT_SPECIAL,
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 30,
-      paddingY: 16,
-    });
-
-    this.instructionMaterial!.map = tex;
-    this.instructionMaterial!.needsUpdate = true;
   }
 
   // --- Feedback ---
 
-  private showFeedback(
-    response: SuppressionResult,
-    condition: TrialCondition,
-    offsetMm?: number,
-  ): void {
+  private showFeedback(response: SuppressionResult, condition: TrialCondition, offsetMm?: number): void {
     const labels: Record<SuppressionResult, string> = {
       fusion: '4 dots — Fusion',
       'fellow-suppressed': '2 dots — Fellow eye suppressed',
@@ -705,45 +446,35 @@ export class SuppressionCheckExercise extends BaseExercise {
       diplopia: COLORS.FEEDBACK_FAILURE,
     };
 
-    const distLabel = condition.distanceLabel.charAt(0).toUpperCase() + condition.distanceLabel.slice(1);
-    let text = `${distLabel}: ${labels[response]}`;
-    if (offsetMm !== undefined) {
-      text += `  (${offsetMm}mm offset)`;
-    }
+    let text = `${capitalize(condition.distanceLabel)}: ${labels[response]}`;
+    if (offsetMm !== undefined) text += `  (${offsetMm}mm offset)`;
 
-    const tex = this.textRenderer.renderToTexture({
-      text,
-      width: 900,
-      height: 80,
-      fontSize: FONTS.FEEDBACK,
-      lineHeight: 1.0,
-      color: colors[response],
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 16,
-      paddingY: 16,
+    this.feedback.setText(feedbackText(text, colors[response], 900));
+    this.feedback.visible = true;
+
+    this.after(TIMING.FEEDBACK_MS, () => {
+      this.feedback.visible = false;
+      if (this.currentTrial >= TOTAL_TRIALS) {
+        this.finish();
+      } else {
+        this.beginInterTrial();
+      }
     });
-
-    this.feedbackMaterial!.map = tex;
-    this.feedbackMaterial!.needsUpdate = true;
-    this.feedbackMesh!.visible = true;
-    this.showingFeedback = true;
-    this.feedbackTimeout = Date.now() + TIMING.FEEDBACK_MS;
   }
 
-  private showResults(): void {
-    this.completed = true;
+  private finish(): void {
     this.setDotsOpacity(0);
+    this.instructions.visible = false;
 
-    const stats = this.getSessionStats();
+    const stats = this.getStats();
     const lines = [
       `Suppression Check — ${stats.trials} trials`,
       '',
       `Overall Fusion: ${stats.fusionRate}%`,
       '',
-      `  Near:   ${stats.nearFusionRate ?? 0}% fused`,
-      `  Medium: ${stats.mediumFusionRate ?? 0}% fused`,
-      `  Far:    ${stats.farFusionRate ?? 0}% fused`,
+      `  Near:   ${stats.nearFusionRate}% fused`,
+      `  Medium: ${stats.mediumFusionRate}% fused`,
+      `  Far:    ${stats.farFusionRate}% fused`,
       '',
       `Training suppressed: ${stats.trainingSuppressionRate}%`,
       `Fellow suppressed: ${stats.fellowSuppressionRate}%`,
@@ -752,43 +483,16 @@ export class SuppressionCheckExercise extends BaseExercise {
     ];
 
     if ((stats.vergenceOffsetCount as number) > 0) {
-      lines.push('');
-      lines.push(`Avg vergence offset: ${stats.avgVergenceOffsetMm}mm`);
-      lines.push(`  (${stats.vergenceOffsetCount} measurements)`);
+      lines.push('', `Avg vergence offset: ${stats.avgVergenceOffsetMm}mm`, `  (${stats.vergenceOffsetCount} measurements)`);
     }
 
-    lines.push('', 'Grip to exit');
+    this.showResults(lines, { x: 0, y: DOT_Y - 0.55, z: -1.7 });
 
-    const tex = this.textRenderer.renderToTexture({
-      text: lines.join('\n'),
-      width: 1024,
-      height: 880,
-      fontSize: FONTS.RESULTS,
-      lineHeight: 1.4,
-      color: COLORS.TEXT_PRIMARY,
-      background: COLORS.PANEL_BG,
-      paddingX: PANELS.RESULTS_PADDING_X,
-      paddingY: PANELS.RESULTS_PADDING_Y,
-      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
-      borderColor: COLORS.PANEL_BORDER,
-      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
-    });
-
-    this.instructionMaterial!.map = tex;
-    this.instructionMaterial!.needsUpdate = true;
-    this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(1.3, 1.1);
-    this.instructionMesh!.position.set(0, DOT_Y - 0.55, -1.7);
-
-    this.feedbackMesh!.visible = false;
-
-    // Render and show scatter plot if there are offset measurements
     const scatterTex = this.renderScatterPlot();
-    if (scatterTex && this.scatterMesh && this.scatterMaterial) {
-      this.scatterMaterial.map = scatterTex;
-      this.scatterMaterial.needsUpdate = true;
-      this.scatterMesh.position.set(1.1, DOT_Y - 0.55, -1.7);
-      this.scatterMesh.visible = true;
+    if (scatterTex) {
+      this.scatter.setTexture(scatterTex);
+      this.scatter.position.set(1.1, DOT_Y - 0.55, -1.7);
+      this.scatter.visible = true;
     }
   }
 
@@ -867,7 +571,7 @@ export class SuppressionCheckExercise extends BaseExercise {
     ctx.stroke();
 
     // Axis labels — nasal/temporal depends on training eye
-    const isRightEye = this.renderer?.getTrainingEye() === 'right';
+    const isRightEye = this.ctx.renderer.getTrainingEye() === 'right';
     const leftLabel = isRightEye ? 'Nasal (eso)' : 'Temporal (exo)';
     const rightLabel = isRightEye ? 'Temporal (exo)' : 'Nasal (eso)';
 
@@ -939,39 +643,19 @@ export class SuppressionCheckExercise extends BaseExercise {
   }
 
   private renderInstructions(): void {
-    const condition = this.currentTrial < TOTAL_TRIALS
-      ? this.trialConditions[this.currentTrial]
-      : null;
-
-    const distLabel = condition
-      ? `${condition.distanceLabel.charAt(0).toUpperCase() + condition.distanceLabel.slice(1)} distance`
+    const condition = this.trialConditions[this.currentTrial];
+    const trialLabel = condition
+      ? `Trial ${this.currentTrial + 1} of ${TOTAL_TRIALS}  •  ${capitalize(condition.distanceLabel)} distance`
       : '';
 
-    const trialLabel = this.currentTrial < TOTAL_TRIALS
-      ? `Trial ${this.currentTrial + 1} of ${TOTAL_TRIALS}  •  ${distLabel}`
-      : '';
-
-    const lines = [
+    this.instructions.setText(instructionText([
       'How many dots do you see?',
-      '',
       'Trigger = 4    A = 2    B = 3    Stick↓ = 5',
       trialLabel,
-    ];
-
-    const tex = this.textRenderer.renderToTexture({
-      text: lines.join('\n'),
-      width: 1024,
-      height: 180,
-      fontSize: FONTS.INSTRUCTION,
-      lineHeight: 1.5,
-      color: COLORS.TEXT_INSTRUCTION,
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 30,
-      paddingY: 16,
-    });
-
-    this.instructionMaterial!.map = tex;
-    this.instructionMaterial!.needsUpdate = true;
+    ]));
   }
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

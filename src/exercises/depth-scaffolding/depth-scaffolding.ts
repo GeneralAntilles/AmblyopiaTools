@@ -26,16 +26,12 @@
  *   - Thumbstick right: select right object
  *   - Trigger:          confirm selection
  *   - A button:         "I can't tell" (counts as incorrect)
- *   - Grip:             exit
  */
 
 import * as THREE from 'three';
-import { BaseExercise, type ExerciseConfig, type SessionStats } from '../base-exercise';
-import type { PerEyeRenderer } from '../../core/per-eye-renderer';
-import type { InputManager } from '../../core/input-manager';
-import { TextRenderer } from '../../utils/text-renderer';
-import { createEnvironmentSphere } from '../../ui/vr-environment';
-import { COLORS, FONTS, PANELS, CANVAS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
+import { BaseExercise, type ExerciseStats } from '../base-exercise';
+import { TextPanel, instructionText, feedbackText, resultsText } from '../../ui/text-panel';
+import { COLORS, PANELS, TIMING, CONTENT_Y } from '../../ui/vr-constants';
 
 // --- Constants ---
 
@@ -89,127 +85,81 @@ interface TrialResult {
 
 // --- Exercise ---
 
+const LEVEL_BANNER_MS = 2500;
+
 export class DepthScaffoldingExercise extends BaseExercise {
-  readonly name = 'Depth Scaffolding';
-  readonly description = 'Stereopsis trainer with progressive monocular cue removal. VR-unique.';
-  readonly type = 'binocular' as const;
-
-  private renderer: PerEyeRenderer | null = null;
-  private input: InputManager | null = null;
-  private unsubInput: (() => void) | null = null;
-  private textRenderer: TextRenderer;
-
-  // Scene objects
   private objectMeshes: THREE.Mesh[] = [];
   private objectMaterials: THREE.MeshBasicMaterial[] = [];
-  private selectorMesh: THREE.Mesh | null = null;
-  private selectorMaterial: THREE.MeshBasicMaterial | null = null;
-  private envSphereMesh: THREE.Mesh | null = null;
-  private envMaterial: THREE.MeshBasicMaterial | null = null;
-  private instructionMesh: THREE.Mesh | null = null;
-  private instructionMaterial: THREE.MeshBasicMaterial | null = null;
-  private feedbackMesh: THREE.Mesh | null = null;
-  private feedbackMaterial: THREE.MeshBasicMaterial | null = null;
-  private levelBannerMesh: THREE.Mesh | null = null;
-  private levelBannerMaterial: THREE.MeshBasicMaterial | null = null;
+  private selectorMesh!: THREE.Mesh;
+  private selectorMaterial!: THREE.MeshBasicMaterial;
+  private instructions!: TextPanel;
+  private feedback!: TextPanel;
+  private levelBanner!: TextPanel;
 
   // Staircase state
-  private cueLevel: number = 0;
-  private depthRange: number = INITIAL_DEPTH_RANGE;
-  private correctStreak: number = 0;
-  private correctAtLevel: number = 0;
+  private cueLevel = 0;
+  private depthRange = INITIAL_DEPTH_RANGE;
+  private correctStreak = 0;
+  private correctAtLevel = 0;
   private finestDepthPerLevel: number[] = [Infinity, Infinity, Infinity];
-  private maxCueLevel: number = 0;
-  private startingCueLevel: number = 0;
+  private maxCueLevel = 0;
 
   // Trial state
   private currentTrial: Trial | null = null;
-  private trialIndex: number = 0;
+  private trialIndex = 0;
   private results: TrialResult[] = [];
-  private trialStartTime: number = 0;
-  private selectedIndex: number = -1; // -1 = none, 0/1/2 = left/center/right
-  private awaitingSelection: boolean = false;
-  private showingFeedback: boolean = false;
-  private feedbackTimeout: number = 0;
-  private showingLevelBanner: boolean = false;
-  private levelBannerTimeout: number = 0;
-  private completed: boolean = false;
+  private trialStartTime = 0;
+  private selectedIndex = -1; // -1 = none, 0/1/2 = left/center/right
+  private awaitingSelection = false;
 
   // Animation
-  private rotationTime: number = 0;
-  private objectTransitioning: boolean = false;
-  private objectTransitionProgress: number = 0;
+  private rotationTime = 0;
+  private objectTransitioning = false;
+  private objectTransitionProgress = 0;
 
-  private exitCallback: (() => void) | null = null;
-
-  constructor() {
-    super();
-    this.textRenderer = new TextRenderer();
-  }
-
-  setExitCallback(cb: () => void): void {
-    this.exitCallback = cb;
-  }
-
-  setStartingCueLevel(level: number): void {
-    this.startingCueLevel = Math.max(0, Math.min(2, level));
-  }
-
-  async setup(config: ExerciseConfig): Promise<void> {
-    this.renderer = config.renderer;
-    this.input = config.input;
-    this.results = [];
-    this.trialIndex = 0;
-    this.cueLevel = this.startingCueLevel;
-    this.depthRange = INITIAL_DEPTH_RANGE;
-    this.correctStreak = 0;
-    this.correctAtLevel = 0;
-    this.finestDepthPerLevel = [Infinity, Infinity, Infinity];
-    this.maxCueLevel = this.startingCueLevel;
-
-    this.createEnvironment();
+  protected setup(): void {
+    this.addEnvironment();
     this.createObjects();
     this.createSelector();
-    this.createUI();
 
-    // Show level 1 banner, then start
+    this.instructions = this.panel(PANELS.INSTRUCTION_WIDTH);
+    this.instructions.position.set(0, CONTENT_Y + PANELS.INSTRUCTION_Y_OFFSET, BASE_Z);
+
+    this.feedback = this.panel(PANELS.FEEDBACK_WIDTH);
+    this.feedback.position.set(0, CONTENT_Y + PANELS.FEEDBACK_Y_OFFSET, BASE_Z);
+    this.feedback.visible = false;
+
+    this.levelBanner = this.panel(1.1);
+    this.levelBanner.position.set(0, BASE_Y, BASE_Z + 0.1);
+    this.levelBanner.visible = false;
+
     this.showLevelBanner(0);
 
-    this.unsubInput = this.input.onAction((action) => {
-      if (this.completed) {
-        if (action === 'exit') this.exitCallback?.();
-        return;
-      }
-
-      if (this.awaitingSelection) {
-        switch (action) {
-          case 'page-back':     // Thumbstick left
-            this.selectObject(0);
-            break;
-          case 'chapter-prev':  // Thumbstick up
-            this.selectObject(1);
-            break;
-          case 'page-forward':  // Thumbstick right
-            this.selectObject(2);
-            break;
-          case 'select':        // Trigger = confirm
-            this.confirmSelection();
-            break;
-          case 'button-a':      // "Can't tell"
-            this.confirmCantTell();
-            break;
-        }
-      }
-
-      if (action === 'exit') {
-        this.exitCallback?.();
+    this.onInput((action) => {
+      if (!this.awaitingSelection) return;
+      switch (action) {
+        case 'page-back':     // Thumbstick left
+          this.selectObject(0);
+          break;
+        case 'chapter-prev':  // Thumbstick up
+          this.selectObject(1);
+          break;
+        case 'page-forward':  // Thumbstick right
+          this.selectObject(2);
+          break;
+        case 'select':        // Trigger = confirm
+          if (this.selectedIndex >= 0) this.answer(this.selectedIndex);
+          break;
+        case 'button-a':      // "Can't tell"
+          this.answer(-1);
+          break;
       }
     });
 
-    this.markStarted();
+    this.ctx.hud.setStatus('Depth — ←↑→ select, trigger confirm, grip exit');
   }
 
-  update(dt: number): void {
+  protected onUpdate(dt: number): void {
     this.rotationTime += dt;
 
     // Gentle rotation on objects
@@ -221,90 +171,30 @@ export class DepthScaffoldingExercise extends BaseExercise {
     }
 
     // Pulse selector
-    if (this.selectorMesh?.visible) {
+    if (this.selectorMesh.visible) {
       const pulse = 0.7 + 0.3 * Math.sin(this.rotationTime * 5);
-      this.selectorMaterial!.opacity = pulse * 0.6;
+      this.selectorMaterial.opacity = pulse * 0.6;
     }
 
     // Smooth object scale-in
-    if (this.objectTransitioning) {
+    if (this.objectTransitioning && this.currentTrial) {
       this.objectTransitionProgress = Math.min(1, this.objectTransitionProgress + dt * 4);
       const t = this.objectTransitionProgress;
       const eased = 1 - Math.pow(1 - t, 3); // Ease-out cubic
 
       for (let i = 0; i < 3; i++) {
-        if (this.currentTrial) {
-          this.objectMeshes[i].scale.setScalar(this.currentTrial.sizes[i] * eased);
-        }
+        this.objectMeshes[i].scale.setScalar(this.currentTrial.sizes[i] * eased);
       }
 
       if (t >= 1) {
         this.objectTransitioning = false;
-        this.trialStartTime = Date.now();
+        this.trialStartTime = this.now();
         this.awaitingSelection = true;
       }
     }
-
-    // Level banner timeout
-    if (this.showingLevelBanner && Date.now() > this.levelBannerTimeout) {
-      this.showingLevelBanner = false;
-      this.levelBannerMesh!.visible = false;
-      this.startNextTrial();
-    }
-
-    // Feedback timeout
-    if (this.showingFeedback && Date.now() > this.feedbackTimeout) {
-      this.showingFeedback = false;
-      this.feedbackMesh!.visible = false;
-
-      this.trialIndex++;
-      if (this.trialIndex >= TOTAL_TRIALS) {
-        this.showResults();
-      } else if (this.shouldAdvanceLevel()) {
-        this.advanceCueLevel();
-      } else {
-        this.startNextTrial();
-      }
-    }
   }
 
-  teardown(): void {
-    this.markStopped();
-    this.unsubInput?.();
-
-    if (this.renderer) {
-      for (const m of this.objectMeshes) this.renderer.removeFromScene(m);
-      if (this.selectorMesh) this.renderer.removeFromScene(this.selectorMesh);
-      if (this.envSphereMesh) this.renderer.removeFromScene(this.envSphereMesh);
-      if (this.instructionMesh) this.renderer.removeFromScene(this.instructionMesh);
-      if (this.feedbackMesh) this.renderer.removeFromScene(this.feedbackMesh);
-      if (this.levelBannerMesh) this.renderer.removeFromScene(this.levelBannerMesh);
-    }
-
-    for (let i = 0; i < this.objectMeshes.length; i++) {
-      this.objectMeshes[i].geometry.dispose();
-      this.objectMaterials[i].dispose();
-    }
-    this.selectorMesh?.geometry.dispose();
-    this.selectorMaterial?.dispose();
-    this.envSphereMesh?.geometry.dispose();
-    this.envMaterial?.map?.dispose();
-    this.envMaterial?.dispose();
-    this.instructionMesh?.geometry.dispose();
-    this.instructionMaterial?.map?.dispose();
-    this.instructionMaterial?.dispose();
-    this.feedbackMesh?.geometry.dispose();
-    this.feedbackMaterial?.map?.dispose();
-    this.feedbackMaterial?.dispose();
-    this.levelBannerMesh?.geometry.dispose();
-    this.levelBannerMaterial?.map?.dispose();
-    this.levelBannerMaterial?.dispose();
-
-    this.renderer = null;
-    this.input = null;
-  }
-
-  getSessionStats(): SessionStats {
+  getStats(): ExerciseStats {
     const byLevel = [0, 1, 2].map((level) => {
       const trials = this.results.filter((r) => r.cueLevel === level);
       const correct = trials.filter((r) => r.correct).length;
@@ -323,8 +213,6 @@ export class DepthScaffoldingExercise extends BaseExercise {
     const totalTrials = this.results.length || 1;
 
     return {
-      exercise: 'depth-scaffolding',
-      durationMs: this.getElapsedMs(),
       trials: this.results.length,
       accuracy: Math.round((totalCorrect / totalTrials) * 100),
       maxCueLevel: this.maxCueLevel + 1,
@@ -335,16 +223,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
   // --- Scene Setup ---
 
-  private createEnvironment(): void {
-    if (!this.renderer) return;
-    const { mesh, material } = createEnvironmentSphere(this.renderer);
-    this.envSphereMesh = mesh;
-    this.envMaterial = material;
-  }
-
   private createObjects(): void {
-    if (!this.renderer) return;
-
     // Use icosahedron (gem-like) for visual interest
     const geo = new THREE.IcosahedronGeometry(OBJECT_RADIUS, 1);
 
@@ -353,15 +232,14 @@ export class DepthScaffoldingExercise extends BaseExercise {
       const mesh = new THREE.Mesh(geo.clone(), mat);
       mesh.position.set(POSITIONS_X[i], BASE_Y, BASE_Z);
       mesh.visible = false;
-      this.renderer.addToBothEyes(mesh);
+      this.add(mesh);
       this.objectMeshes.push(mesh);
       this.objectMaterials.push(mat);
     }
+    geo.dispose();
   }
 
   private createSelector(): void {
-    if (!this.renderer) return;
-
     const ringGeo = new THREE.RingGeometry(OBJECT_RADIUS * 1.6, OBJECT_RADIUS * 2.0, 32);
     this.selectorMaterial = new THREE.MeshBasicMaterial({
       color: 0xdbb870,
@@ -372,46 +250,7 @@ export class DepthScaffoldingExercise extends BaseExercise {
     });
     this.selectorMesh = new THREE.Mesh(ringGeo, this.selectorMaterial);
     this.selectorMesh.visible = false;
-    this.renderer.addToBothEyes(this.selectorMesh);
-  }
-
-  private createUI(): void {
-    if (!this.renderer) return;
-
-    // Instructions (below objects)
-    const instructGeo = new THREE.PlaneGeometry(PANELS.INSTRUCTION_WIDTH, PANELS.INSTRUCTION_HEIGHT);
-    this.instructionMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.instructionMesh = new THREE.Mesh(instructGeo, this.instructionMaterial);
-    this.instructionMesh.position.set(0, CONTENT_Y + PANELS.INSTRUCTION_Y_OFFSET, BASE_Z);
-    this.renderer.addToBothEyes(this.instructionMesh);
-
-    // Feedback (above objects)
-    const feedbackGeo = new THREE.PlaneGeometry(PANELS.FEEDBACK_WIDTH, PANELS.FEEDBACK_HEIGHT);
-    this.feedbackMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.feedbackMesh = new THREE.Mesh(feedbackGeo, this.feedbackMaterial);
-    this.feedbackMesh.position.set(0, CONTENT_Y + PANELS.FEEDBACK_Y_OFFSET, BASE_Z);
-    this.feedbackMesh.visible = false;
-    this.renderer.addToBothEyes(this.feedbackMesh);
-
-    // Level banner (center, appears on level transitions)
-    const bannerGeo = new THREE.PlaneGeometry(1.1, 0.32);
-    this.levelBannerMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      depthWrite: false,
-    });
-    this.levelBannerMesh = new THREE.Mesh(bannerGeo, this.levelBannerMaterial);
-    this.levelBannerMesh.position.set(0, BASE_Y, BASE_Z + 0.1);
-    this.levelBannerMesh.visible = false;
-    this.renderer.addToBothEyes(this.levelBannerMesh);
+    this.add(this.selectorMesh);
   }
 
   // --- Trial Generation ---
@@ -464,28 +303,24 @@ export class DepthScaffoldingExercise extends BaseExercise {
     this.currentTrial = this.generateTrial();
     this.selectedIndex = -1;
 
-    // Position objects
     for (let i = 0; i < 3; i++) {
       const mesh = this.objectMeshes[i];
-      const mat = this.objectMaterials[i];
-
       mesh.position.set(POSITIONS_X[i], BASE_Y, this.currentTrial.depths[i]);
       mesh.scale.setScalar(this.currentTrial.sizes[i]);
       mesh.visible = true;
-      mesh.rotation.set(0, 0, 0); // Reset rotation
+      mesh.rotation.set(0, 0, 0);
 
       // Apply brightness via color
       const baseColor = new THREE.Color(OBJECT_COLORS[i]);
       const b = this.currentTrial.brightnesses[i];
-      mat.color.setRGB(
+      this.objectMaterials[i].color.setRGB(
         Math.min(1, baseColor.r * b),
         Math.min(1, baseColor.g * b),
         Math.min(1, baseColor.b * b),
       );
     }
 
-    // Hide selector
-    this.selectorMesh!.visible = false;
+    this.selectorMesh.visible = false;
 
     // Start scale-in transition
     this.objectTransitioning = true;
@@ -496,58 +331,49 @@ export class DepthScaffoldingExercise extends BaseExercise {
   }
 
   private selectObject(index: number): void {
-    if (!this.awaitingSelection) return;
-    this.input?.haptic('tick');
+    this.ctx.input.haptic('tick');
     this.selectedIndex = index;
 
-    // Move selector ring to selected object
-    this.selectorMesh!.position.set(
-      POSITIONS_X[index],
-      BASE_Y,
-      this.currentTrial!.depths[index] + 0.01, // Just in front
-    );
-    this.selectorMesh!.visible = true;
+    // Move selector ring just in front of the selected object
+    this.selectorMesh.position.set(POSITIONS_X[index], BASE_Y, this.currentTrial!.depths[index] + 0.01);
+    this.selectorMesh.visible = true;
   }
 
-  private confirmSelection(): void {
-    if (!this.awaitingSelection || this.selectedIndex < 0 || !this.currentTrial) return;
+  /** Record an answer. selected = -1 means "can't tell" (scored incorrect). */
+  private answer(selected: number): void {
+    if (!this.currentTrial) return;
     this.awaitingSelection = false;
 
-    const correct = this.selectedIndex === this.currentTrial.closestIndex;
-    const reactionTimeMs = Date.now() - this.trialStartTime;
-
+    const correct = selected === this.currentTrial.closestIndex;
     this.results.push({
       cueLevel: this.currentTrial.cueLevel,
       depthRange: this.currentTrial.depthRange,
-      selectedIndex: this.selectedIndex,
+      selectedIndex: selected,
       correctIndex: this.currentTrial.closestIndex,
       correct,
-      reactionTimeMs,
+      reactionTimeMs: this.now() - this.trialStartTime,
     });
 
-    this.input?.haptic(correct ? 'confirm' : 'error');
+    this.ctx.input.haptic(correct ? 'confirm' : 'error');
     this.updateStaircase(correct);
-    this.showFeedbackText(correct);
-  }
 
-  private confirmCantTell(): void {
-    if (!this.awaitingSelection || !this.currentTrial) return;
-    this.awaitingSelection = false;
+    this.feedback.setText(feedbackText(
+      correct ? 'Correct' : 'Incorrect',
+      correct ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE,
+    ));
+    this.feedback.visible = true;
 
-    const reactionTimeMs = Date.now() - this.trialStartTime;
-
-    this.results.push({
-      cueLevel: this.currentTrial.cueLevel,
-      depthRange: this.currentTrial.depthRange,
-      selectedIndex: -1,
-      correctIndex: this.currentTrial.closestIndex,
-      correct: false,
-      reactionTimeMs,
+    this.after(TIMING.FEEDBACK_MS, () => {
+      this.feedback.visible = false;
+      this.trialIndex++;
+      if (this.trialIndex >= TOTAL_TRIALS) {
+        this.finish();
+      } else if (this.cueLevel < 2 && this.correctAtLevel >= CORRECT_TO_ADVANCE_LEVEL) {
+        this.advanceCueLevel();
+      } else {
+        this.startNextTrial();
+      }
     });
-
-    this.input?.haptic('error');
-    this.updateStaircase(false);
-    this.showFeedbackText(false);
   }
 
   // --- Staircase ---
@@ -574,10 +400,6 @@ export class DepthScaffoldingExercise extends BaseExercise {
     }
   }
 
-  private shouldAdvanceLevel(): boolean {
-    return this.cueLevel < 2 && this.correctAtLevel >= CORRECT_TO_ADVANCE_LEVEL;
-  }
-
   private advanceCueLevel(): void {
     this.cueLevel++;
     this.maxCueLevel = Math.max(this.maxCueLevel, this.cueLevel);
@@ -587,86 +409,42 @@ export class DepthScaffoldingExercise extends BaseExercise {
 
     // Hide objects during banner
     for (const mesh of this.objectMeshes) mesh.visible = false;
-    this.selectorMesh!.visible = false;
+    this.selectorMesh.visible = false;
 
     this.showLevelBanner(this.cueLevel);
   }
 
-  // --- Feedback ---
-
-  private showFeedbackText(correct: boolean): void {
-    const text = correct ? 'Correct' : 'Incorrect';
-    const color = correct ? COLORS.FEEDBACK_SUCCESS : COLORS.FEEDBACK_FAILURE;
-
-    const tex = this.textRenderer.renderToTexture({
-      text,
-      width: CANVAS.FEEDBACK_WIDTH,
-      height: CANVAS.FEEDBACK_HEIGHT,
-      fontSize: FONTS.FEEDBACK,
-      lineHeight: 1.0,
-      color,
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 16,
-      paddingY: 8,
-    });
-
-    this.feedbackMaterial!.map = tex;
-    this.feedbackMaterial!.needsUpdate = true;
-    this.feedbackMesh!.visible = true;
-    this.showingFeedback = true;
-    this.feedbackTimeout = Date.now() + TIMING.FEEDBACK_MS;
-  }
-
   private showLevelBanner(level: number): void {
-    const levelNum = level + 1;
-    const name = CUE_LEVEL_NAMES[level];
+    const details = [
+      'Size + brightness cues active',
+      'Size cue removed — brightness + stereo',
+      'Pure stereo — only binocular disparity',
+    ];
 
-    let detail: string;
-    if (level === 0) {
-      detail = 'Size + brightness cues active';
-    } else if (level === 1) {
-      detail = 'Size cue removed — brightness + stereo';
-    } else {
-      detail = 'Pure stereo — only binocular disparity';
-    }
+    this.levelBanner.setText(resultsText(
+      [`Level ${level + 1}: ${CUE_LEVEL_NAMES[level]}`, details[level]],
+      { width: 768, fontSize: 36, lineHeight: 1.6, align: 'center', paddingX: 40, paddingY: 40 },
+    ));
+    this.levelBanner.visible = true;
 
-    const tex = this.textRenderer.renderToTexture({
-      text: `Level ${levelNum}: ${name}\n${detail}`,
-      width: 768,
-      height: 230,
-      fontSize: 36,
-      lineHeight: 1.6,
-      color: COLORS.TEXT_PRIMARY,
-      background: COLORS.PANEL_BG,
-      paddingX: 40,
-      paddingY: 40,
-      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
-      borderColor: COLORS.PANEL_BORDER,
-      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
-      align: 'center',
+    this.after(LEVEL_BANNER_MS, () => {
+      this.levelBanner.visible = false;
+      this.startNextTrial();
     });
-
-    this.levelBannerMaterial!.map = tex;
-    this.levelBannerMaterial!.needsUpdate = true;
-    this.levelBannerMesh!.visible = true;
-    this.showingLevelBanner = true;
-    this.levelBannerTimeout = Date.now() + 2500;
   }
 
-  private showResults(): void {
-    this.completed = true;
+  private finish(): void {
     for (const mesh of this.objectMeshes) mesh.visible = false;
-    this.selectorMesh!.visible = false;
-    this.feedbackMesh!.visible = false;
+    this.selectorMesh.visible = false;
+    this.instructions.visible = false;
 
-    const stats = this.getSessionStats();
+    const stats = this.getStats();
     const levelResults = stats.levelResults as Array<{
       level: number; name: string; trials: number; accuracy: number; finestDepthMm: number | null;
     }>;
 
-    const lines = [
-      `Depth Scaffolding Complete`,
+    this.showResults([
+      'Depth Scaffolding Complete',
       `Max level: ${stats.maxCueLevelName}`,
       `Overall accuracy: ${stats.accuracy}%`,
       '',
@@ -676,58 +454,14 @@ export class DepthScaffoldingExercise extends BaseExercise {
           const depth = l.finestDepthMm !== null ? ` (finest: ${l.finestDepthMm}mm)` : '';
           return `L${l.level} ${l.name}: ${l.accuracy}%${depth}`;
         }),
-      '',
-      'Grip to exit',
-    ];
-
-    const tex = this.textRenderer.renderToTexture({
-      text: lines.join('\n'),
-      width: CANVAS.RESULTS_WIDTH,
-      height: 576,
-      fontSize: FONTS.RESULTS,
-      lineHeight: 1.5,
-      color: COLORS.TEXT_PRIMARY,
-      background: COLORS.PANEL_BG,
-      paddingX: PANELS.RESULTS_PADDING_X,
-      paddingY: PANELS.RESULTS_PADDING_Y,
-      borderRadius: PANELS.RESULTS_BORDER_RADIUS,
-      borderColor: COLORS.PANEL_BORDER,
-      borderWidth: PANELS.RESULTS_BORDER_WIDTH,
-    });
-
-    this.instructionMaterial!.map = tex;
-    this.instructionMaterial!.needsUpdate = true;
-    this.instructionMesh!.geometry.dispose();
-    this.instructionMesh!.geometry = new THREE.PlaneGeometry(PANELS.RESULTS_WIDTH, 0.7);
-    this.instructionMesh!.position.set(0, BASE_Y - 0.4, BASE_Z + 0.1);
+    ], { x: 0, y: BASE_Y - 0.4, z: BASE_Z + 0.1 });
   }
 
   private renderInstructions(): void {
-    if (!this.currentTrial) return;
-
-    const levelName = CUE_LEVEL_NAMES[this.cueLevel];
     const depthMm = (this.depthRange * 1000).toFixed(1);
-    const trialNum = this.trialIndex + 1;
-
-    const lines = [
+    this.instructions.setText(instructionText([
       'Which object is closest? ← left  ↑ center  → right',
-      `Trigger = confirm   A = can't tell   ${levelName} (${depthMm}mm)   ${trialNum}/${TOTAL_TRIALS}`,
-    ];
-
-    const tex = this.textRenderer.renderToTexture({
-      text: lines.join('\n'),
-      width: CANVAS.INSTRUCTION_WIDTH,
-      height: CANVAS.INSTRUCTION_HEIGHT,
-      fontSize: FONTS.INSTRUCTION,
-      lineHeight: 1.6,
-      color: COLORS.TEXT_INSTRUCTION,
-      background: 'rgba(0,0,0,0)',
-      align: 'center',
-      paddingX: 30,
-      paddingY: 12,
-    });
-
-    this.instructionMaterial!.map = tex;
-    this.instructionMaterial!.needsUpdate = true;
+      `Trigger = confirm   A = can't tell   ${CUE_LEVEL_NAMES[this.cueLevel]} (${depthMm}mm)   ${this.trialIndex + 1}/${TOTAL_TRIALS}`,
+    ]));
   }
 }

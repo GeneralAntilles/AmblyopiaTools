@@ -11,6 +11,7 @@
  */
 
 import type { SessionStats } from '../exercises/base-exercise';
+import type { ExerciseDefinition } from '../exercises/definition';
 
 export interface ProgressionDecision {
   shouldIncrement: boolean;
@@ -35,6 +36,7 @@ const DEFAULT_CONFIG: ProgressionConfig = {
 
 export function evaluateProgression(
   stats: SessionStats,
+  _definition: ExerciseDefinition | undefined,
   currentContrast: number,
   configOverrides?: Partial<ProgressionConfig>,
 ): ProgressionDecision {
@@ -85,7 +87,7 @@ export function evaluateProgression(
   }
 
   // Reading (mono or dichoptic): just need a reasonable session duration (5+ minutes)
-  if (exercise === 'monocular-reading' || exercise === 'dichoptic-reading') {
+  if (exercise === 'monocular-reading') {
     if (stats.durationMs < 300000) {
       return { ...base, shouldIncrement: false, reason: 'Reading session under 5 minutes' };
     }

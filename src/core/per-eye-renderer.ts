@@ -22,7 +22,24 @@ export const LAYER_NON_TRAINING = 2;
 
 export type FrameCallback = (time: number, frame: XRFrame | null) => void;
 
-export class PerEyeRenderer {
+/**
+ * What exercises need from a renderer: per-eye scene placement plus
+ * head/controller queries. PerEyeRenderer implements it for WebXR; tests
+ * use a headless implementation with no WebGL.
+ */
+export interface EyeRenderer {
+  getTrainingEye(): EyeSide;
+  addToTrainingEye(obj: THREE.Object3D): void;
+  addToNonTrainingEye(obj: THREE.Object3D): void;
+  addToBothEyes(obj: THREE.Object3D): void;
+  removeFromScene(obj: THREE.Object3D): void;
+  getHeadPosition(): THREE.Vector3;
+  worldToContentLocal(pos: THREE.Vector3): THREE.Vector3;
+  getControllerPosition(index: number): THREE.Vector3 | null;
+  getControllerRay(index: number): { origin: THREE.Vector3; direction: THREE.Vector3 } | null;
+}
+
+export class PerEyeRenderer implements EyeRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private contentGroup: THREE.Group;
@@ -250,7 +267,7 @@ export class PerEyeRenderer {
 /**
  * Recursively set the layer on an object and all its descendants.
  */
-function setLayerRecursive(obj: THREE.Object3D, layer: number): void {
+export function setLayerRecursive(obj: THREE.Object3D, layer: number): void {
   obj.layers.set(layer);
   obj.traverse((child) => {
     child.layers.set(layer);

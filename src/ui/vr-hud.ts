@@ -8,12 +8,13 @@
 import * as THREE from 'three';
 import { TextRenderer } from '../utils/text-renderer';
 import { COLORS, FONTS, CONTENT_Y } from './vr-constants';
+import type { SessionHud } from '../core/session-host';
 
 const HUD_Y = CONTENT_Y + 0.72;  // Above content area
 const HUD_Z = -2.0;
 const HUD_COLOR = COLORS.TEXT_HUD;
 
-export class VRHud {
+export class VRHud implements SessionHud {
   private textRenderer: TextRenderer;
   private hudGroup: THREE.Group;
   private statusMesh: THREE.Mesh;
@@ -55,7 +56,7 @@ export class VRHud {
     return this.hudGroup;
   }
 
-  updateStatus(text: string): void {
+  setStatus(text: string): void {
     this.statusMaterial.map?.dispose();
     const tex = this.textRenderer.renderToTexture({
       text,
@@ -73,7 +74,7 @@ export class VRHud {
     this.statusMaterial.needsUpdate = true;
   }
 
-  updateTimer(elapsedMs: number): void {
+  setElapsed(elapsedMs: number): void {
     const seconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(seconds / 60);
     const display = `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
